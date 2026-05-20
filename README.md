@@ -204,7 +204,7 @@ Scoring of the [F5 BNK how-tos index](https://clouddocs.f5.com/bigip-next-for-ku
 
 | # | How-to | Rating | Status |
 |---|---|---|---|
-| 1 | Restrict access to sensitive data | — | not yet implemented |
+| **1** | **Restrict access to sensitive data** | **🟢 green** | **implemented (`cwc-admin-access`)** |
 | 2 | Components needing cluster-wide access | — | not yet implemented |
 | **3** | **Set up dynamic routing with BGP** | **🟢 green** | **implemented (`bgp-peer-frr`)** |
 | 4 | Set up core file collection | — | not yet implemented |
@@ -264,6 +264,19 @@ IP+port. On kind, the "external" backend is an nginx pod attached
 to the bnk-bgp NAD (same bridge TMM uses), with its NAD IP
 auto-discovered and rendered into the Pool CR. Gateway address
 is 203.0.113.101 to avoid collision with `http-routing-e2e`.
+
+`cwc-admin-access` (green) — implements how-to #1 (restrict access
+to sensitive data). Demonstrates BNK's dual-gate access control
+on the CWC admin API: mTLS at the TLS layer + bearer token at
+the HTTP layer. Both materials are produced by the deploy-flo
+phase already (cwc-license-client-certs Secret + cwc-auth-token
+Secret in f5-cne-core); the scenario just replicates them into
+its own namespace, spawns a curl probe pod, and runs three
+requests against https://f5-spk-cwc.f5-cne-core.svc:38081/status:
+authenticated (expect 200 + license JSON), no Authorization
+header (expect 401 "invalid token format"), bogus token
+(expect 401 "invalid token"). Independent of bgp-peer-frr —
+this is a pure runtime-access check.
 
 `proxy-protocol-l4` (amber) — implements how-to #9 (PROXY-protocol
 iRule on an L4 route). Six control-plane assertions pass: the
