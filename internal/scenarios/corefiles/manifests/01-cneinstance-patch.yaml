@@ -1,0 +1,13 @@
+# Placeholder so the scenario has at least one manifest to embed for
+# audit. The actual CNEInstance patch is applied via `kubectl patch`
+# in scenario.go because we need to merge into the live object, not
+# replace it. The patch JSON is kept in scenario.go alongside the
+# revert patch for Cleanup.
+#
+# What this scenario changes on the cluster:
+#   - spec.coreCollection.enabled: true
+# What FLO reconciles in response:
+#   - CoreMond CR (auto-created)
+#   - Coremond Deployment
+#   - hostPath mount under /var/crash (or equivalent) added to TMM
+#     pod spec so any core dumps survive pod restarts.

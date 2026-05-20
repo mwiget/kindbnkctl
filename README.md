@@ -202,24 +202,25 @@ shape:
 
 Scoring of the [F5 BNK how-tos index](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/):
 
-| # | How-to | Rating | Status |
+| # | How-to | Rating | Scenario |
 |---|---|---|---|
-| **1** | **Restrict access to sensitive data** | **🟢 green** | **implemented (`cwc-admin-access`)** |
-| 2 | Components needing cluster-wide access | — | not yet implemented |
-| **3** | **Set up dynamic routing with BGP** | **🟢 green** | **implemented (`bgp-peer-frr`)** |
-| 4 | Set up core file collection | — | not yet implemented |
-| 6 | Configure Token Counting and Enforcement | — | not yet implemented |
-| 7 | Configure AI Traffic Optimization Features | — | not yet implemented |
-| **8** | **HTTP traffic steering with Gateway API HTTPRoute** | **🟢 green** | **implemented (`http-routing-e2e`)** |
-| **9** | **Proxy Protocol iRule support for L4 routes** | **🟡 amber** | **implemented (`proxy-protocol-l4`)** |
-| **10** | **Load Balance Traffic to External Resources** | **🟢 green** | **implemented (`external-resource-pool`)** |
-| 12 | TMOS DNS Service Integration with CIS | — | not yet implemented |
+| 1 | [Restrict access to sensitive data](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-admin-access-api.html) | 🟢 green | [`cwc-admin-access`](internal/scenarios/cwcadminaccess) |
+| 2 | [Components needing cluster-wide access](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-whole-cluster.html) | — | not yet implemented |
+| 3 | [Set up dynamic routing with BGP](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-zebos-config.html) | 🟢 green | [`bgp-peer-frr`](internal/scenarios/bgppeer) |
+| 4 | [Set up core file collection](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-coremond.html) | 🟡 amber | [`core-file-collection`](internal/scenarios/corefiles) |
+| 6 | [Configure Token Counting and Enforcement](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/configure-token-counting-and-enforcement.html) | — | not yet implemented |
+| 7 | [Configure AI Traffic Optimization Features](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/ai-related-features/index.html) | — | not yet implemented |
+| 8 | [HTTP traffic steering with Gateway API HTTPRoute](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/Configure-HTTP-traffic-steering-with-Gateway-API-HTTPRoute.html) | 🟢 green | [`http-routing-e2e`](internal/scenarios/httproutee2e) |
+| 9 | [Proxy Protocol iRule support for L4 routes](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/proxy-protocol.html) | 🟡 amber | [`proxy-protocol-l4`](internal/scenarios/proxyprotocol) |
+| 10 | [Load Balance Traffic to External Resources](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/configure-external-resource-load-balancing.html) | 🟢 green | [`external-resource-pool`](internal/scenarios/extrespool) |
 
-How-tos **#5 (DOCA Offloads on DPU)** and **#11 (Static
-Active-Standby Interface Bonding)** are omitted from the table:
-both require physical hardware (DPU silicon and bondable NICs)
-that kind cannot provide. They remain valid BNK features; they
-just aren't testable in this shape.
+How-tos **#5** ([DOCA Offloads on DPU](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/traffic-offload.html)),
+**#11** ([Static Active-Standby Interface Bonding](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/configure-static-active-standby-bonding.html)),
+and **#12** ([TMOS DNS Service Integration with CIS](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/configure-tmos-dns-service-integration-with-container-ingress-services.html))
+are omitted from the table because they require resources kind
+can't provide: DPU silicon (#5), bondable physical NICs (#11),
+and a real upstream BIG-IP GTM box (#12). They remain valid BNK
+features outside the kindbnkctl shape.
 
 Ratings are assigned only after a scenario is built and run.
 Implemented scenarios that pan out land as 🟢 green; ones that
@@ -293,6 +294,21 @@ demonstration of the CR wiring; lifting it to green would
 require figuring out whether BNK 2.3's iRule TCL subset
 supports `TCP::respond` on L4Route flows or whether a different
 iRule shape is needed.
+
+`core-file-collection` (amber) — implements how-to #4 (set up
+core file collection). One-line CNEInstance.spec.coreCollection.
+enabled=true flip; FLO auto-creates a CoreMond CR + DaemonSet
+in f5-cne-core and adds kernel-cores / f5-core-store /
+tmm-core volumes to the TMM Deployment template. The scenario
+asserts the CR exists, the DaemonSet has a desired replica
+count, and the TMM template carries the new volumes. The
+how-to's "kill -11 to force a crash" verification step is
+intentionally NOT automated — crashing TMM mid-scenario
+destabilises the cluster, and the follow-up "did a core file
+land in /var/crash" check needs a privileged node-level read
+we'd rather not bake in. Operators can run the kill manually
+after the scenario and inspect the kind worker container's
+filesystem to confirm capture.
 
 ## Testing
 
