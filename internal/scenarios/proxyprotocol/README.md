@@ -84,21 +84,47 @@ standard TCP profile. The DevCentral PROXY Protocol Initiator
 codeshare explicitly notes *"This requires a TCP profile to be
 applied, so a 'Standard' Virtual Server will need to be used"*.
 BNK's L4Route doesn't seem to offer a switch to use a standard
-TCP profile instead of `bigproto` — and `bigproto` appears to
-silently drop TCP-level payload-injection commands. The
-auto-generated semantic-cache iRule (which DOES work) only
-uses `TCP::respond` for **client-side** HTTP responses on cache
-hits (via `HTTP::respond` and `TCP::close`), never for
-server-side TCP injection.
+TCP profile instead of `bigproto` — verified empirically:
+
+- `L4Route.spec` has only `parentRefs`, `protocol`,
+  `pvaAccelerationMode`, `pvaDynamicClientPkts`,
+  `pvaDynamicServerPkts`, `rules`. No profile knob.
+- `F5BnkGateway.spec` has only `ingressConfig`. No profile knob.
+- `Pool.spec.members[item]` has only `address`, `port`,
+  `priorityGroup`. No `proxy_protocol` toggle.
+- `F5BigCneIrule.spec` has only `iRule`, `namespace`, `tenant`.
+  No profile pinning.
+
+The auto-generated semantic-cache iRule (which DOES work) only
+uses `TCP::respond` for **client-side** HTTP responses via
+`HTTP::respond` and `TCP::close`, never for server-side TCP
+injection — so the working iRules carefully avoid the broken
+opcode.
+
+### Exhaustive empirical results
+
+| Event | Command | Validator | Runtime |
+|---|---|---|---|
+| `CLIENT_ACCEPTED` | `TCP::respond $hdr` | ✓ accepted | no-op (client got nothing back) |
+| `SERVER_CONNECTED` | `TCP::respond $hdr` (default ctx) | ✓ accepted | no-op (nginx sees raw HTTP) |
+| `SERVER_CONNECTED` | `serverside { TCP::respond $hdr }` | ✓ accepted | no-op |
+| `LB_SELECTED` | `TCP::respond $hdr` | ✓ accepted | no-op |
+| `CLIENT_DATA` after `TCP::collect` | `TCP::payload replace 0 0 $hdr` + `TCP::release` | ✓ accepted | `TCP::payload length` returns empty, no injection on wire |
+| any | `TCP::send $hdr` | ✗ `undefined procedure: TCP::send` | n/a |
+| any | `TCP::write $hdr` | ✗ `undefined procedure: TCP::write` | n/a |
+
+So BNK 2.3's L4Route iRule subset has **no functional TCP-data
+injection primitive at all**. The validator accepts `TCP::respond`
+but its runtime is a stub. Alternative names (`TCP::send`,
+`TCP::write`) don't exist in the dispatch table.
 
 ### What lifting to green would require
 
-- F5 to either implement TCP-level server-side injection on
-  the `profile_bigproto` profile that L4Route uses, OR
-- expose a profile-switch on the Gateway listener so we can
-  request a standard TCP profile, OR
-- document an alternative pattern for PROXY-on-L4 in BNK 2.3+
-  that we haven't found.
+- F5 to implement `TCP::respond` (or an equivalent) in BNK's
+  L4Route data-plane, OR
+- BNK to expose a profile-switch on the Gateway listener so
+  we can pin a standard TCP profile, OR
+- document an alternative pattern we haven't found.
 
 None of those are scenario-side workarounds. Amber stays.
 
