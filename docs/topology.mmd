@@ -1,88 +1,72 @@
 ---
 title: kindbnkctl network topology
+config:
+  flowchart:
+    nodeSpacing: 40
+    rankSpacing: 55
+    htmlLabels: true
+    diagramPadding: 20
 ---
-flowchart TB
+flowchart LR
 
   classDef host       fill:#fafafa,stroke:#333,stroke-width:2px,color:#222
-  classDef docker     fill:#e7f5ff,stroke:#1864ab,color:#1864ab
+  classDef docker     fill:#e7f5ff,stroke:#1864ab,color:#0b3d6b
   classDef node       fill:#fff9db,stroke:#a08818,color:#5c4d10
   classDef bridge     fill:#ffe3e3,stroke:#c92a2a,color:#7a1010
   classDef tmm        fill:#d3f9d8,stroke:#2b8a3e,color:#1a4d24
   classDef frr        fill:#d0ebff,stroke:#1864ab,color:#0b3d6b
   classDef backend    fill:#fff3bf,stroke:#a08818,color:#5c4d10
-  classDef bgp        fill:#fff,stroke:#c92a2a,stroke-width:2px,color:#c92a2a
-  classDef ifc        fill:#ffffff,stroke:#666,color:#222
+  classDef bgp        fill:#fff5f5,stroke:#c92a2a,stroke-width:2px,color:#7a1010
+  classDef plain      fill:#ffffff,stroke:#666,color:#222
 
-  subgraph HOST["HOST &mdash; Linux or macOS Docker Desktop"]
+  subgraph DNETS["host docker bridge networks"]
+    direction TB
+    KIND["<b>kind</b><br/>172.18.0.0/16"]:::docker
+    BIN["<b>bnk-internal</b><br/>198.18.100.0/24"]:::docker
+    BEX["<b>bnk-external</b><br/>203.0.113.0/24"]:::docker
+  end
+
+  subgraph NODES[" "]
     direction TB
 
-    subgraph DNET["docker bridge networks"]
-      direction LR
-      KIND["kind&nbsp;&nbsp;172.18.0.0/16"]:::docker
-      BIN["bnk-internal&nbsp;&nbsp;198.18.100.0/24"]:::docker
-      BEX["bnk-external&nbsp;&nbsp;203.0.113.0/24"]:::docker
-    end
-
-    subgraph CP["smoke-control-plane &mdash; kind node container"]
+    subgraph CP["<b>smoke-control-plane</b> &nbsp;·&nbsp; kind node container"]
       direction TB
-      CP_ETH["eth0&nbsp;172.18.0.2"]:::ifc
-      CP_PODS["pods:&nbsp;Calico&nbsp;·&nbsp;Multus&nbsp;·&nbsp;FLO&nbsp;·&nbsp;CWC&nbsp;·&nbsp;cert-manager"]
+      CP_BODY["<b>eth0</b> 172.18.0.2<br/><br/>pods: Calico &nbsp;·&nbsp; Multus &nbsp;·&nbsp; FLO controller<br/>CWC &nbsp;·&nbsp; cert-manager"]:::plain
     end
     class CP node
 
-    subgraph WK["smoke-worker &mdash; kind node container &mdash; label app=f5-tmm"]
+    subgraph WK["<b>smoke-worker</b> &nbsp;·&nbsp; kind node container &nbsp;·&nbsp; label <code>app=f5-tmm</code>"]
       direction TB
-      WK_IFS["node interfaces:&nbsp;&nbsp;eth0 172.18.0.3&nbsp;&nbsp;|&nbsp;&nbsp;eth1 198.18.100.3&nbsp;&nbsp;|&nbsp;&nbsp;eth2 203.0.113.3"]:::ifc
 
-      subgraph BR["br-bnk-bgp &mdash; Linux bridge in node netns &mdash; Multus bridge-CNI &mdash; 192.168.99.0/24"]
-        direction LR
+      WK_IFS["<b>node interfaces:</b><br/><b>eth0</b> 172.18.0.3 &nbsp; (kind)<br/><b>eth1</b> 198.18.100.3 &nbsp; (bnk-internal scenery)<br/><b>eth2</b> 203.0.113.3 &nbsp; (bnk-external scenery)"]:::plain
 
-        subgraph TMM["TMM pod &mdash; ns=default &mdash; app=f5-tmm"]
-          direction TB
-          TMM_CONT["containers:<br/>f5-tmm&nbsp;·&nbsp;f5-tmm-routing (ZeBOS)<br/>debug&nbsp;·&nbsp;blobd&nbsp;·&nbsp;f5-toda-observer<br/>ipsec-spinetail"]
-          TMM_NET1["net1&nbsp;&nbsp;192.168.99.X/24<br/>(Multus bridge — BGP + data plane)"]:::ifc
-          TMM_ETH0["eth0&nbsp;&nbsp;10.244.x.x/32<br/>(Calico — kube-API + ZeBOS bgpd listen)"]:::ifc
-          TMM_XETH["xeth0&nbsp;&nbsp;no IP<br/>(Calico veth #2, TMM userspace raw frames)"]:::ifc
-          TMM_VIRT["tmm&nbsp;&nbsp;169.254.0.253/24<br/>(virtio — pod default route to TMM DP)"]:::ifc
-          TMM_TUNL["tunl0&nbsp;&nbsp;DOWN<br/>(Calico IPIP placeholder)"]:::ifc
-        end
-        class TMM tmm
+      subgraph BR["<b>br-bnk-bgp</b> &nbsp;·&nbsp; Linux bridge in node netns &nbsp;·&nbsp; Multus NAD <code>bnk-bgp</code> &nbsp;·&nbsp; 192.168.99.0/24"]
+        direction TB
 
-        subgraph FRR["FRR pod &mdash; ns=scn-bgp &mdash; app=scn-frr"]
-          direction TB
-          FRR_CONT["container:&nbsp;frr (zebra + bgpd)"]
-          FRR_NET1["net1&nbsp;&nbsp;192.168.99.Y/24<br/>(Multus bridge — BGP + curl client)"]:::ifc
-          FRR_ETH0["eth0&nbsp;&nbsp;10.244.x.x/32<br/>(Calico — kube-API)"]:::ifc
-        end
-        class FRR frr
+        TMM["<b>TMM pod</b> &nbsp;·&nbsp; ns=default &nbsp;·&nbsp; <code>app=f5-tmm</code><br/>───────────────────────────────────<br/>containers: f5-tmm &nbsp;·&nbsp; f5-tmm-routing (ZeBOS)<br/>debug &nbsp;·&nbsp; blobd &nbsp;·&nbsp; toda-observer &nbsp;·&nbsp; ipsec<br/>───────────────────────────────────<br/><b>net1</b> &nbsp;192.168.99.X/24 &nbsp; Multus bridge &nbsp;·&nbsp; BGP + scenario DP<br/><b>eth0</b> &nbsp;10.244.x.x/32 &nbsp; Calico &nbsp;·&nbsp; kube-API + ZeBOS bgpd listen<br/><b>xeth0</b> no IP &nbsp; Calico veth #2 &nbsp;·&nbsp; TMM userspace raw frames<br/><b>tmm</b> &nbsp;169.254.0.253/24 &nbsp; virtio &nbsp;·&nbsp; pod default route to TMM DP<br/><b>tunl0</b> DOWN &nbsp; Calico IPIP placeholder (unused)"]:::tmm
 
-        subgraph BACKENDS["scenario backends &mdash; per-scenario pods with bnk-bgp NAD"]
-          direction TB
-          BK_EXT["ext-backend (extrespool, ns=scn-extres)"]:::backend
-          BK_PP["pp-backend (proxyprotocol, ns=scn-proxy) — Service-only, not on NAD"]:::backend
-          BK_HTTP["nginx (httproutee2e, ns=scn-httproute-e2e) — Service-only, not on NAD"]:::backend
-        end
-        class BACKENDS backend
+        FRR["<b>FRR pod</b> &nbsp;·&nbsp; ns=scn-bgp &nbsp;·&nbsp; <code>app=scn-frr</code><br/>──────────────────────────<br/>container: frr (zebra + bgpd)<br/>──────────────────────────<br/><b>net1</b> &nbsp;192.168.99.Y/24 &nbsp; Multus bridge &nbsp;·&nbsp; BGP peer + curl<br/><b>eth0</b> &nbsp;10.244.x.x/32 &nbsp; Calico &nbsp;·&nbsp; kube-API"]:::frr
+
+        BACKENDS["<b>scenario backends</b> &nbsp;·&nbsp; per-scenario pods<br/>─────────────────────────────<br/><b>ext-backend</b> &nbsp; ns=scn-extres &nbsp;·&nbsp; NAD-attached (192.168.99.Z)<br/><b>pp-backend</b> &nbsp; ns=scn-proxy &nbsp;·&nbsp; Service-only, not on NAD<br/><b>nginx</b> &nbsp; ns=scn-httproute-e2e &nbsp;·&nbsp; Service-only, not on NAD"]:::backend
       end
       class BR bridge
 
-      WK_DS["DaemonSets in node netns:<br/>Calico-node&nbsp;·&nbsp;Multus thick&nbsp;·&nbsp;f5-coremond (if how-to #4)"]
+      WK_DS["DaemonSets in node netns:<br/>Calico-node &nbsp;·&nbsp; Multus thick &nbsp;·&nbsp; f5-coremond (if how-to #4 ran)"]:::plain
     end
     class WK node
   end
-  class HOST host
 
-  KIND --- CP_ETH
+  KIND --- CP_BODY
   KIND --- WK_IFS
   BIN --- WK_IFS
   BEX --- WK_IFS
 
-  TMM_NET1 -.->|BGP TCP/179<br/>L2 over br-bnk-bgp| FRR_NET1
-  TMM_NET1 -.->|HTTP/L4 data plane| BK_EXT
+  TMM <-.->|"BGP TCP/179 over br-bnk-bgp (L2)"| FRR
+  TMM -.->|"HTTP/L4 data plane"| BACKENDS
 
-  subgraph BGPBOX["BGP session — over net1, no TMM eth0 hook involved"]
+  subgraph BGP_SESSION["<b>BGP session</b> &nbsp;·&nbsp; over net1, no TMM eth0 hook involved"]
     direction LR
-    AS65000["TMM/ZeBOS<br/>AS 65000"]:::bgp
-    AS65001["FRR<br/>AS 65001<br/>listen-range 192.168.99.0/24<br/>peer-group from-tmm"]:::bgp
-    AS65000 ---|redistribute kernel:<br/>192.168.99.0/24 connected<br/>203.0.113.100/32  http-routing-e2e<br/>203.0.113.101/32  external-resource-pool<br/>203.0.113.102/32  proxy-protocol-l4| AS65001
+    AS_TMM["<b>TMM/ZeBOS</b><br/>AS 65000<br/>update-source net1"]:::bgp
+    AS_FRR["<b>FRR</b><br/>AS 65001<br/>listen-range 192.168.99.0/24<br/>peer-group <code>from-tmm</code>"]:::bgp
+    AS_TMM ==>|"<b>redistribute kernel</b> (at router-bgp scope):<br/>192.168.99.0/24 &nbsp; connected (net1)<br/>203.0.113.100/32 &nbsp; Gateway scn-gateway &nbsp; (http-routing-e2e)<br/>203.0.113.101/32 &nbsp; Gateway scn-extres-gw &nbsp; (external-resource-pool)<br/>203.0.113.102/32 &nbsp; Gateway scn-proxy-gw &nbsp; (proxy-protocol-l4)"| AS_FRR
   end
