@@ -1,16 +1,20 @@
 # `core-file-collection` — CNEInstance toggle + CoreMond reconcile
 
 F5 how-to: [Set up core file collection](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-coremond.html)
-&nbsp;·&nbsp; Rating: 🟡
+&nbsp;·&nbsp; Rating: 🟢
 &nbsp;·&nbsp; Depends on: nothing
-&nbsp;·&nbsp; Wall time: **~3m01s** (full TMM restart to pick up hostPath mounts)
+&nbsp;·&nbsp; Wall time: **~2m49s** (TMM rollover dominates)
 
-The how-to is a single CNEInstance toggle:
+The how-to is a single CNEInstance toggle, plus one kind-specific
+knob we have to set alongside it (see below):
 
 ```yaml
 spec:
   coreCollection:
     enabled: true
+  advanced:
+    coremon:
+      hostPath: true       # critical on kind — see below
 ```
 
 FLO responds by:
@@ -22,78 +26,71 @@ FLO responds by:
   (with mounts) to the TMM Deployment template, so any
   kernel-side core dumps survive pod restarts.
 
-## Why amber
+## The kind-specific `hostPath: true` knob
 
-The reconciled infrastructure is all asserted (CoreMond CR
-exists, DaemonSet has at least one desired replica, TMM
-Deployment template carries the core-dump volumes). But the
-data plane doesn't actually work end-to-end on our cluster.
-Investigated 2026-05-20; three compounding issues:
+The default CoreMond CR sets `spec.persistence.enabled: true,
+accessMode: ReadWriteMany` and creates a PVC named
+`coremond-pvc` for the core-dump destination. **kind's default
+StorageClass (`rancher.io/local-path` / NodePath) only supports
+ReadWriteOnce**, so the PVC stays `Pending` forever.
 
-### 1. The F5 doc has no real verify step
-
-The how-to just says "`kill -11 $(pidof tmm)` to force a
-crash" with no automation and no "this is what you should
-see" assertion. Verifying "did a core file get captured"
-requires privileged node-level filesystem access into the
-kind worker container (the CoreMond DaemonSet bind-mounts
-`/home/crash/f5` from the host).
-
-### 2. CoreMond's DaemonSet pod can't stay scheduled
-
-The CoreMond pod creates and re-creates on a few-minute
-cycle without ever reaching Ready. The kube-scheduler log
-fingerprint is:
+What that looks like without the workaround:
 
 ```
-"Plugin failed" err="binding volumes: pod does not exist any
-  more: pod \"f5-coremond-XXX\" not found"
-plugin="VolumeBinding" pod="f5-cne-core/f5-coremond-XXX"
-node="smoke-worker"
+$ kubectl get events -n f5-cne-core
+Warning ProvisioningFailed pvc/coremond-pvc
+  failed to provision volume with StorageClass "standard":
+  NodePath only supports ReadWriteOnce and ReadWriteOncePod (1.22+)
+
+Warning FailedScheduling pod/f5-coremond-XXX
+  running PreBind plugin "VolumeBinding": binding volumes:
+  pod does not exist any more: pod "f5-coremond-XXX" not found
 ```
 
-The DaemonSet controller is recreating the pod before the
-scheduler's PreBind plugin finishes — a classic race. Root
-cause is the FLO null-`crashagentConfig` reconcile loop
-(documented in `scenario.go::Cleanup`): FLO keeps trying to
-update child CRs, gets rejected by the API server, retries,
-and as a side-effect repeatedly churns the CoreMond
-DaemonSet. The pod never has time to settle. Empirically the
-worker has plenty of CPU/memory/disk — it's purely a
-control-plane race.
+Chain of consequence: PVC Pending → scheduler's `VolumeBinding`
+PreBind plugin can't bind → DaemonSet controller times out and
+recreates the pod → race between scheduler-bind and
+controller-delete-recreate → the pod never reaches Ready →
+`CNEInstance.status.conditions[CoremondAvailable]` stays `False`.
 
-Symptom: `CNEInstance.status.conditions[CoremondAvailable]`
-stays `False` for the lifetime of the scenario.
+Setting `advanced.coremon.hostPath: true` bypasses the PVC
+entirely — CoreMond bind-mounts `/home/crash/f5` from the
+worker host directly. The DaemonSet pod schedules cleanly in
+~30s and CoremondAvailable flips True.
 
-### 3. Forcing a crash needs the data plane to be live
+This matches F5's own how-to mention that "Coremond supports
+storing core files directly on a host directory, eliminating
+the need for ReadWriteMany volumes" — they just don't surface
+that the knob is essential on kind-like clusters.
 
-Even if we automated the `kill -11`, the verification
-("did the core land in `/home/crash/f5` on the worker")
-needs CoreMond to be Running so its hostPath is created and
-the in-cluster path is wired up. With CoreMond stuck
-Pending, the host path doesn't even exist on the worker
-(`ls /home/crash/f5: No such file or directory`).
+## What's NOT verified
 
-### What lifting to green would need
+The "`kill -11 $(pidof tmm)` to force a crash" step F5
+mentions still isn't automated. Reasons:
 
-- F5 to fix the null-`crashagentConfig` reconcile bug (so
-  the DaemonSet stops churning and CoreMond stays Ready),
-  OR
-- a kindbnkctl-side workaround that pins/manages the
-  CoreMond DaemonSet directly instead of relying on FLO's
-  template path, OR
-- a different verification angle that doesn't depend on
-  CoreMond running (e.g. just check `crashagentConfig` is
-  reflected onto the TMM container env — already covered by
-  the existing "TMM Deployment template includes a core-dump
-  volume" assertion).
+- Crashing TMM disrupts any other concurrent scenarios — they
+  all rely on TMM being responsive (BGP-dependent scenarios
+  in particular).
+- The reconciled-infrastructure + CoremondAvailable=True
+  assertions already prove the feature is plumbed correctly;
+  what's left is "does a kernel core dump actually get
+  captured and processed by CoreMond", which is a TMM-internal
+  data-plane concern that the F5 doc doesn't suggest verifying
+  beyond eyeballing the file.
 
-The reconciled-infrastructure assertions are the honest
-testable subset. Operators can still run the `kill -11`
-manually post-scenario; if CoreMond happens to be Running at
-that moment (which does occasionally happen between churn
-cycles), the core file does land in `/home/crash/f5` on the
-worker.
+Operators who want to verify capture end-to-end can run, after
+the scenario completes:
+
+```bash
+TMM=$(kubectl -n default get pod -l app=f5-tmm \
+        --field-selector=status.phase=Running \
+        -o jsonpath='{.items[0].metadata.name}')
+kubectl -n default exec $TMM -c f5-tmm -- sh -c '
+  kill -11 $(pidof tmm) 2>/dev/null || pgrep -f tmm | xargs kill -11
+'
+sleep 60
+docker exec smoke-worker ls -la /home/crash/f5
+```
 
 ## Manifests
 
@@ -107,37 +104,30 @@ worker.
 kindbnkctl scenario run core-file-collection --poc <pocdir>
 ```
 
-Apply is more lenient than other scenarios: the `rollout status`
-wait for f5-tmm is best-effort (3 min, logs WARN on timeout)
-rather than gating. Verify reads the Deployment template
-directly, so it can prove the change landed even if the new pod
-hasn't finished rolling out — useful when the worker is under
-resource pressure from other scenarios.
-
-## Verification
-
-Required:
+## Verification (4/4 required)
 
 ```
 ✓ FLO auto-created a CoreMond CR
 ✓ CoreMond DaemonSet exists with at least one desired replica
 ✓ TMM Deployment template includes a core-dump volume
+✓ CNEInstance condition (Coremond|CoreMon)Available=True
 ```
-
-Bonus (sometimes fails on a heavily-loaded worker; non-fatal):
-
-```
-✗ [bonus] CNEInstance condition (Coremond|CoreMon)Available=True
-```
-
-FLO surfaces this condition only once the CoreMond pod schedules
-and stays Ready, which can lag.
 
 ## Cleanup
 
-`kindbnkctl scenario clean core-file-collection` reverts:
+`kindbnkctl scenario clean core-file-collection` reverts both
+flags on CNEInstance and restarts TMM to drop the hostPath
+mounts. FLO garbage-collects the CoreMond CR + DaemonSet.
 
-- `CNEInstance.spec.coreCollection.enabled` → `false`
-- TMM restarted so the new volumes drop out of the pod spec
+## Investigation history
 
-FLO then garbage-collects the CoreMond CR + DaemonSet on its own.
+Earlier iterations of this scenario stayed amber because the
+CoremondAvailable bonus assertion was unreliable. Live tracing
+(2026-05-20) found the PVC-provisioning chain described above.
+The `advanced.coremon.hostPath: true` workaround was hiding in
+plain sight on the CoreMond CRD schema.
+
+The earlier "FLO null-`crashagentConfig` reconcile loop"
+diagnosis was orthogonal — that loop is still real and noisy,
+but it doesn't actually block this scenario once
+`hostPath: true` is set (the PVC is what blocked it, not FLO).

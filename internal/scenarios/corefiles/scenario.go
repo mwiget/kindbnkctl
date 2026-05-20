@@ -6,18 +6,20 @@
 // component (DaemonSet + CR) and add hostPath mounts to TMM pods
 // for /var/crash, so any kernel core dumps survive pod restarts.
 //
-// The scenario flips the toggle, waits for the reconcile, asserts
-// the CoreMond CR + Deployment exist and become Ready, and
-// confirms TMM's new pod spec contains the expected hostPath
-// volume. The "kill -11 to force a crash" verification suggested
-// by the doc is intentionally NOT automated — crashing TMM mid-
-// scenario can leave the cluster in a sketchy state, and the
-// follow-up "did the file land in /var/crash" check needs a
-// privileged node-level read we'd rather avoid in a self-contained
-// scenario. That last step stays as a documented manual recipe in
-// the scenario Description.
+// Critical kind workaround: also set
+// spec.advanced.coremon.hostPath=true. The default CoreMond CR
+// requests a ReadWriteMany PVC that kind's local-path provisioner
+// can't satisfy — see Apply() for the full chain of consequences
+// (PVC Pending → DS pod can't bind volumes → DS controller churns
+// pods → CoremondAvailable stays False forever).
 //
-// Cleanup reverts coreCollection.enabled to false.
+// The "kill -11 to force a crash" verification suggested by the
+// doc is still not automated — crashing TMM is destabilizing for
+// other concurrent scenarios. The reconciled-infrastructure +
+// CoremondAvailable=True assertions cover the feature wiring;
+// the manual kill recipe stays as a Description follow-up.
+//
+// Cleanup reverts both flags.
 package corefiles
 
 import (
@@ -25,6 +27,7 @@ import (
 	"fmt"
 	"io/fs"
 	"strings"
+	"time"
 
 	"github.com/mwiget/kindbnkctl/internal/scenarios"
 )
@@ -43,7 +46,7 @@ type scenario struct{}
 
 func (s *scenario) Name() string             { return scnName }
 func (s *scenario) Title() string            { return scnTitle }
-func (s *scenario) Rating() scenarios.Rating { return scenarios.Amber }
+func (s *scenario) Rating() scenarios.Rating { return scenarios.Green }
 func (s *scenario) Dependencies() []string   { return nil }
 func (s *scenario) Description() string {
 	return strings.TrimSpace(`
@@ -103,7 +106,26 @@ func (s *scenario) Manifests(ctx *scenarios.Context) ([]string, error) {
 func (s *scenario) Apply(ctx *scenarios.Context) error {
 	r := ctx.Runner
 
-	patch := `{"spec":{"coreCollection":{"enabled":true}}}`
+	// Two-part patch:
+	//   - coreCollection.enabled=true            (the feature flag)
+	//   - advanced.coremon.hostPath=true         (use hostPath instead
+	//     of a PVC for the core-dump destination)
+	//
+	// Why the hostPath toggle is load-bearing on kind: the default
+	// CoreMond CR requests a PVC named coremond-pvc with
+	// accessMode=ReadWriteMany. kind's default StorageClass
+	// (rancher.io/local-path / "NodePath") only supports RWO. The
+	// PVC stays Pending forever, so the CoreMond DaemonSet pod
+	// never binds volumes → never schedules → kube-scheduler logs
+	// "binding volumes: pod does not exist any more" as the DS
+	// controller deletes+recreates pods on a ~4-minute cycle.
+	// With hostPath=true, CoreMond mounts /home/crash/f5 from the
+	// worker node directly — no PVC needed, pod schedules cleanly,
+	// CoremondAvailable status condition flips True within ~30s.
+	patch := `{"spec":{` +
+		`"coreCollection":{"enabled":true},` +
+		`"advanced":{"coremon":{"hostPath":true}}` +
+		`}}`
 	if err := r.Kubectl(ctx.Ctx, "patch", "cneinstance", "bnk-instance",
 		"-n", "default", "--type=merge", "-p", patch); err != nil {
 		return fmt.Errorf("patch CNEInstance.spec.coreCollection.enabled=true: %w", err)
@@ -190,32 +212,50 @@ func (s *scenario) Verify(ctx *scenarios.Context) scenarios.Result {
 		Got:         oneLine(tmpl, 300),
 	})
 
-	cmCond, _ := r.KubectlCapture(ctx.Ctx, "-n", "default", "get",
-		"cneinstance", "bnk-instance",
-		"-o", `jsonpath={.status.conditions[?(@.type=="CoremondAvailable")].status}`)
-	cmCond = strings.TrimSpace(cmCond)
-	if cmCond == "" {
-		alt, _ := r.KubectlCapture(ctx.Ctx, "-n", "default", "get",
+	// Poll for the CoremondAvailable status condition — with the
+	// hostPath bypass the pod schedules quickly but the condition
+	// can lag while CoreMond's healthcheck stabilizes.
+	cmCond := ""
+	for i := 0; i < 30; i++ {
+		out, _ := r.KubectlCapture(ctx.Ctx, "-n", "default", "get",
 			"cneinstance", "bnk-instance",
-			"-o", `jsonpath={.status.conditions[?(@.type=="CoreMonAvailable")].status}`)
-		cmCond = strings.TrimSpace(alt)
+			"-o", `jsonpath={.status.conditions[?(@.type=="CoremondAvailable")].status}`)
+		cmCond = strings.TrimSpace(out)
+		if cmCond == "" {
+			alt, _ := r.KubectlCapture(ctx.Ctx, "-n", "default", "get",
+				"cneinstance", "bnk-instance",
+				"-o", `jsonpath={.status.conditions[?(@.type=="CoreMonAvailable")].status}`)
+			cmCond = strings.TrimSpace(alt)
+		}
+		if cmCond == "True" {
+			break
+		}
+		select {
+		case <-ctx.Ctx.Done():
+			break
+		case <-time.After(5 * time.Second):
+		}
 	}
 	res.Assertions = append(res.Assertions, scenarios.Assertion{
-		Description: "[bonus] CNEInstance condition (Coremond|CoreMon)Available=True",
+		Description: "CNEInstance condition (Coremond|CoreMon)Available=True",
 		OK:          cmCond == "True",
 		Got:         "value=" + cmCond,
 	})
 
-	return finalizeAmber(res)
+	return finalize(res)
 }
 
 func (s *scenario) Cleanup(ctx *scenarios.Context) error {
 	r := ctx.Runner
 	// Disable the feature on CNEInstance — FLO garbage-collects
-	// the CoreMond CR + DaemonSet on its own.
+	// the CoreMond CR + DaemonSet on its own. Also remove the
+	// hostPath knob we set in Apply.
 	_ = r.Kubectl(ctx.Ctx, "patch", "cneinstance", "bnk-instance",
 		"-n", "default", "--type=merge",
-		"-p", `{"spec":{"coreCollection":{"enabled":false}}}`)
+		"-p", `{"spec":{`+
+			`"coreCollection":{"enabled":false},`+
+			`"advanced":{"coremon":{"hostPath":false}}`+
+			`}}`)
 
 	// Known BNK 2.3 FLO bug: after this toggle, FLO sends UPDATE
 	// requests for every managed component CR (F5Tmm, DSSM, Cwc,
@@ -240,25 +280,18 @@ func (s *scenario) Cleanup(ctx *scenarios.Context) error {
 	return nil
 }
 
-func finalizeAmber(res scenarios.Result) scenarios.Result {
-	if len(res.Assertions) == 0 {
+func finalize(res scenarios.Result) scenarios.Result {
+	if res.AllPassed() {
 		res.Status = "ok"
-		return res
-	}
-	required := res.Assertions[:len(res.Assertions)-1]
-	allOK := true
-	var failed []string
-	for _, a := range required {
-		if !a.OK {
-			allOK = false
-			failed = append(failed, a.Description)
-		}
-	}
-	if allOK {
-		res.Status = "ok"
-		res.Summary = "coreCollection enabled, CoreMond reconciled, TMM has crash-dump hostPath mount (forced-crash verify left manual — see description)"
+		res.Summary = "coreCollection enabled, CoreMond Running on hostPath, all status conditions True"
 	} else {
 		res.Status = "failed"
+		var failed []string
+		for _, a := range res.Assertions {
+			if !a.OK {
+				failed = append(failed, a.Description)
+			}
+		}
 		res.Summary = "failed: " + strings.Join(failed, "; ")
 	}
 	return res
