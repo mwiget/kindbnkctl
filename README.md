@@ -211,7 +211,7 @@ Scoring of the [F5 BNK how-tos index](https://clouddocs.f5.com/bigip-next-for-ku
 | 5 | Configure DOCA Offloads on DPU | 🔴 red | needs DPU |
 | 6 | Configure Token Counting and Enforcement | 🟢 green | not yet implemented |
 | 7 | Configure AI Traffic Optimization Features | 🟡 amber | not yet implemented |
-| **8** | **HTTP traffic steering with Gateway API HTTPRoute** | **🟡 amber** | **implemented (`http-routing-e2e`)** |
+| **8** | **HTTP traffic steering with Gateway API HTTPRoute** | **🟢 green** | **implemented (`http-routing-e2e`)** |
 | 9 | Proxy Protocol iRule support for L4 routes | 🟡 amber | not yet implemented |
 | 10 | Load Balance Traffic to External Resources | 🟢 green | not yet implemented |
 | 11 | Static Active-Standby Interface Bonding | 🔴 red | needs real NICs |
@@ -227,12 +227,24 @@ in the 192.168.99.0/24 NAD range, ZeBOS sees the neighbor, BGP
 session Established, and FRR's BGP table has at least one prefix
 learned from TMM (via `redistribute kernel`).
 
-`http-routing-e2e` (still amber) — its `[bonus]` 5×curl
-assertion remains deferred. It uses the same eth0 path as
-the old http-routing scenario, which IS still hooked by TMM's
-data plane. A follow-up scenario that wires the Gateway listener
-through the NAD path (or that runs a client pod with a static
-route via the FRR pod) would lift this one to green.
+`http-routing-e2e` (green) — depends on `bgp-peer-frr` for the
+NAD plumbing. Applies a GatewayClass + Gateway (static
+spec.addresses=203.0.113.100) + HTTPRoute + nginx backend.
+TMM's ZeBOS (via `redistribute kernel`) advertises 203.0.113.100/32
+into BGP; FRR installs the kernel route via net1; the verify
+step execs 5 curls from inside the FRR pod, which already has
+the route. All 6 assertions pass including the 5×curl. Path:
+FRR socket → FRR kernel route → net1 → bnk-bgp bridge → TMM net1
+→ Gateway listener → nginx. TMM's eth0 TCP hook is completely
+bypassed.
+
+Reproduce manually:
+
+```bash
+kubectl -n scn-bgp exec deploy/scn-frr -c frr -- \
+  curl -sS -H 'Host: kindbnkctl.local' http://203.0.113.100/
+# → kindbnkctl-scenario-httproute-e2e-OK
+```
 
 ## Testing
 

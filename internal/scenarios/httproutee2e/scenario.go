@@ -1,46 +1,51 @@
 // Package httproutee2e implements scenario "http-routing-e2e" — the
 // full data-plane version of how-to #8 (HTTP traffic steering with
-// Gateway API HTTPRoute). Builds on the BGP plumbing established by
-// bgp-peer-frr: the curl client pod gets a static route for the
-// Gateway IP via the FRR pod, which has a BGP-learned route to TMM.
+// Gateway API HTTPRoute).
 //
-// Pipeline:
+// Builds on the BGP plumbing established by bgp-peer-frr:
+//   - FRR pod has a kernel route for 203.0.113.100/32 via TMM's
+//     net1 NAD IP (learned via BGP from ZeBOS's redistribute kernel).
+//   - That path bypasses TMM's eth0 TCP hook — packets reach TMM
+//     on net1 (NAD bridge), not on Calico eth0.
+//   - Verification curls from inside the FRR pod itself: it's already
+//     on the NAD bridge, already has the BGP-learned route, and is
+//     a regular Linux pod for the kernel TCP stack. No separate
+//     curl-client deployment needed.
 //
-//	scn-httproute-e2e namespace
-//	  GatewayClass         (cluster-wide, idempotent)
-//	  F5BnkGateway         (IP pool for the listener)
-//	  Gateway              (static spec.addresses 203.0.113.100)
-//	  HTTPRoute            (host=kindbnkctl.local, path=/, → nginx)
-//	  nginx Deployment+Svc (2 replicas, marker body)
-//	  scn-curl Deployment  (curl client w/ init container that
-//	                        installs `ip route 203.0.113.100 via
-//	                        <frr-pod-IP>`)
+// Pipeline (Apply):
+//
+//	1. GatewayClass + F5BnkGateway IP pool
+//	2. nginx Deployment+Service (2 replicas, marker body)
+//	3. Gateway with static spec.addresses=203.0.113.100
+//	4. HTTPRoute (host=kindbnkctl.local, path=/, → nginx)
+//	5. Wait for FRR's BGP table to include 203.0.113.100/32
+//	   (proof TMM is now advertising it after the Gateway apply)
 //
 // Verification:
-//   - Same control-plane checks as the old http-routing scenario
-//   - 5 consecutive curls from inside scn-curl to
+//   - control plane (GatewayClass + Gateway Programmed + HTTPRoute
+//     Accepted + nginx Available)
+//   - FRR has 203.0.113.100/32 in its BGP table
+//   - 5 consecutive curls from inside FRR to
 //     http://203.0.113.100/ with Host: kindbnkctl.local all return
 //     the nginx marker body
 package httproutee2e
 
 import (
-	"bytes"
 	"embed"
 	"fmt"
 	"io/fs"
 	"strings"
-	"text/template"
 	"time"
 
 	"github.com/mwiget/kindbnkctl/internal/scenarios"
 )
 
-//go:embed manifests/*.yaml manifests/*.yaml.tmpl
+//go:embed manifests/*.yaml
 var manifestFS embed.FS
 
 const (
 	scnName  = "http-routing-e2e"
-	scnTitle = "HTTP traffic steering with Gateway API HTTPRoute (how-to #8) — full data plane"
+	scnTitle = "HTTP traffic steering with Gateway API HTTPRoute (how-to #8) — full data plane via NAD"
 )
 
 func init() { scenarios.Register(&scenario{}) }
@@ -49,33 +54,37 @@ type scenario struct{}
 
 func (s *scenario) Name() string             { return scnName }
 func (s *scenario) Title() string            { return scnTitle }
-func (s *scenario) Rating() scenarios.Rating { return scenarios.Amber }
+func (s *scenario) Rating() scenarios.Rating { return scenarios.Green }
 func (s *scenario) Dependencies() []string   { return []string{"bgp-peer-frr"} }
 func (s *scenario) Description() string {
 	return strings.TrimSpace(`
-End-to-end HTTPRoute scenario with the full plumbing in place
-for real data-plane traffic. Requires the bgp-peer-frr scenario
-to be running already.
+End-to-end HTTPRoute scenario with real data-plane traffic.
 
-Stages:
-  1. GatewayClass + F5BnkGateway IP pool + Gateway (static
-     spec.addresses=203.0.113.100) + HTTPRoute + nginx backend.
-  2. scn-curl Deployment with an initContainer that installs a
-     pod-local static route 203.0.113.100/32 via the discovered
-     FRR pod IP (looked up in scn-bgp at apply time).
-  3. From inside scn-curl: 5 consecutive curls to
-     http://203.0.113.100/ with Host: kindbnkctl.local.
+Requires bgp-peer-frr to be running already — relies on the
+FRR pod in scn-bgp having a BGP session with TMM over the
+bnk-bgp NAD. When this scenario applies the Gateway with
+static spec.addresses=203.0.113.100, TMM (via ZeBOS's
+redistribute kernel) advertises that /32 over BGP. FRR
+receives it with next-hop set to TMM's net1 IP and installs
+a kernel route for 203.0.113.100/32 via net1.
 
-Currently rated AMBER, not GREEN, because the data-plane curl
-depends on BGP between TMM and FRR being Established (so FRR
-knows to forward Gateway-IP traffic to TMM's eth0). See the
-bgp-peer-frr scenario's Description for the three documented
-gaps (vlanName, passwd.conf, fake-gateway routing) that need
-solving in TMM-pod-shape to lift both scenarios to green.
+The verify step then execs 5 curls from inside the FRR pod
+to http://203.0.113.100/ with the configured hostname. The
+path is: FRR socket → FRR kernel routing → net1 → bnk-bgp
+bridge → TMM net1 → TMM Gateway listener → nginx backend.
+TMM's eth0 TCP hook is completely bypassed because the
+traffic never touches eth0.
 
-Control-plane assertions are pass/fail. The end-to-end curl is
-recorded as a [bonus] assertion — visible in the report but
-doesn't fail the scenario today.
+No separate curl-client pod is deployed — the FRR pod is
+already exactly the kind of client this scenario needs
+(on the NAD, with the BGP-learned route to the Gateway IP).
+Operators can reproduce manually:
+
+    kubectl -n scn-bgp exec deploy/scn-frr -c frr -- \
+      curl -sS -H 'Host: kindbnkctl.local' http://203.0.113.100/
+
+Cleanup: delete the scn-httproute-e2e namespace. The
+GatewayClass stays (cluster-wide; reused by other scenarios).
 `)
 }
 
@@ -103,20 +112,16 @@ func (s *scenario) Manifests(ctx *scenarios.Context) ([]string, error) {
 func (s *scenario) Apply(ctx *scenarios.Context) error {
 	r := ctx.Runner
 
-	// 1. Look up FRR pod IP. Hard error if scn-bgp/scn-frr isn't
-	//    deployed — we explicitly declare bgp-peer-frr as a
-	//    dependency and don't try to recreate it here.
-	frrIP, err := r.KubectlCapture(ctx.Ctx, "-n", "scn-bgp", "get", "pod",
+	// Check the dependency is in place before touching anything.
+	if _, err := r.KubectlCapture(ctx.Ctx, "-n", "scn-bgp", "get", "pod",
 		"-l", "app=scn-frr",
-		"-o", "jsonpath={.items[0].status.podIP}")
-	if err != nil || strings.TrimSpace(frrIP) == "" {
-		return fmt.Errorf("scn-bgp/scn-frr not found — run `kindbnkctl scenario run bgp-peer-frr` first (err=%v, out=%q)",
-			err, frrIP)
+		"--field-selector=status.phase=Running",
+		"-o", "jsonpath={.items[0].metadata.name}"); err != nil {
+		return fmt.Errorf("dependency missing: run `kindbnkctl scenario run bgp-peer-frr` first (no Running scn-frr pod in scn-bgp namespace)")
 	}
-	frrIP = strings.TrimSpace(frrIP)
 
-	// 2. Apply static manifests in order. GatewayClass is idempotent;
-	//    namespace must exist before the namespace-scoped objects.
+	// Apply static manifests in order. GatewayClass is idempotent;
+	// namespace must exist before namespace-scoped objects.
 	for _, f := range []string{
 		"01-gatewayclass.yaml",
 		"02-namespace.yaml",
@@ -133,57 +138,14 @@ func (s *scenario) Apply(ctx *scenarios.Context) error {
 			return fmt.Errorf("apply %s: %w", f, err)
 		}
 	}
-
-	// 3. Render the curl-client deployment (template) so the rendered
-	//    file is on disk for audit. Apply it only when BGP looks
-	//    Established — otherwise the init container's static-route
-	//    install will fail with "Network unreachable" because the
-	//    FRR pod IP isn't reachable while ZeBOS isn't programming
-	//    routes back. The discovered state determines whether we
-	//    attempt the data-plane portion.
-	_ = frrIP // referenced by template rendering below
-	tmplBody, err := manifestFS.ReadFile("manifests/07-curl-client.yaml.tmpl")
-	if err != nil {
-		return err
-	}
-	t, err := template.New("curl").Parse(string(tmplBody))
-	if err != nil {
-		return err
-	}
-	var rendered bytes.Buffer
-	if err := t.Execute(&rendered, struct{ FRRPodIP string }{FRRPodIP: frrIP}); err != nil {
-		return err
-	}
-	if _, err := scenarios.WriteManifest(ctx.PoCDir, scnName,
-		"07-curl-client.rendered.yaml", rendered.String()); err != nil {
-		return err
-	}
-	if bgpEstablished(ctx) {
-		if err := r.Apply(ctx.Ctx, rendered.String()); err != nil {
-			return fmt.Errorf("apply curl-client: %w", err)
-		}
-	} else {
-		fmt.Fprintln(ctx.Out, "      | BGP not Established (see bgp-peer-frr); skipping curl-client deploy")
-	}
 	return nil
-}
-
-// bgpEstablished asks FRR whether the BGP session with TMM is up.
-// Returns false on any error or when no Established neighbor appears.
-func bgpEstablished(ctx *scenarios.Context) bool {
-	out, err := ctx.Runner.KubectlCapture(ctx.Ctx, "-n", "scn-bgp", "exec",
-		"deploy/scn-frr", "--", "vtysh", "-c", "show bgp summary")
-	if err != nil {
-		return false
-	}
-	return strings.Contains(out, "Estab")
 }
 
 func (s *scenario) Verify(ctx *scenarios.Context) scenarios.Result {
 	r := ctx.Runner
 	res := scenarios.Result{}
 
-	// Control-plane assertions (same as the old amber scenario).
+	// Control-plane assertions.
 	{
 		err := r.Wait(ctx.Ctx, "scn-httproute-e2e", "Available",
 			"deployment/nginx", 3*time.Minute)
@@ -204,7 +166,6 @@ func (s *scenario) Verify(ctx *scenarios.Context) scenarios.Result {
 		})
 	}
 
-	// HTTPRoute Accepted=True (via parentRef[0]).
 	out, _ := r.KubectlCapture(ctx.Ctx, "-n", "scn-httproute-e2e", "get",
 		"httproute/scn-route",
 		"-o", "jsonpath={.status.parents[0].conditions[?(@.type==\"Accepted\")].status}")
@@ -214,94 +175,93 @@ func (s *scenario) Verify(ctx *scenarios.Context) scenarios.Result {
 		Got:         strings.TrimSpace(out),
 	})
 
-	// Data-plane portion is conditional on BGP being Established.
-	// Apply skipped the curl-client deploy when BGP wasn't up; we
-	// short-circuit verification here so the bonus assertion reflects
-	// the right reality.
-	curlOK := false
-	got := "skipped: BGP not Established (see bgp-peer-frr)"
-	if bgpEstablished(ctx) {
-		if err := r.Wait(ctx.Ctx, "scn-httproute-e2e", "Available",
-			"deployment/scn-curl", 2*time.Minute); err != nil {
-			got = "scn-curl Deployment never Available: " + err.Error()
-		} else {
-			curlPod, err := r.KubectlCapture(ctx.Ctx, "-n", "scn-httproute-e2e", "get",
-				"pod", "-l", "app=scn-curl",
-				"-o", "jsonpath={.items[0].metadata.name}")
-			if err != nil || strings.TrimSpace(curlPod) == "" {
-				got = "no scn-curl pod"
-			} else {
-				curlPod = strings.TrimSpace(curlPod)
-				const marker = "kindbnkctl-scenario-httproute-e2e-OK"
-				successCount := 0
-				var lastErr, lastBody string
-				for i := 1; i <= 5; i++ {
-					body, err := r.KubectlCapture(ctx.Ctx, "-n", "scn-httproute-e2e", "exec",
-						curlPod, "-c", "curl", "--",
-						"curl", "-sS", "--fail", "--max-time", "8",
-						"-H", "Host: kindbnkctl.local",
-						"http://203.0.113.100/",
-					)
-					if err != nil {
-						lastErr = err.Error()
-						continue
-					}
-					lastBody = strings.TrimSpace(body)
-					if strings.Contains(body, marker) {
-						successCount++
-					}
-				}
-				curlOK = successCount == 5
-				got = fmt.Sprintf("%d/5 curls returned marker", successCount)
-				if !curlOK && lastErr != "" {
-					got += " — last error: " + lastErr
-				} else if !curlOK {
-					got += " — last body: " + oneLine(lastBody, 120)
-				}
-			}
+	// Wait for FRR's BGP table to include 203.0.113.100/32 — proof
+	// that TMM started advertising it after Gateway+HTTPRoute apply.
+	frrPod, ferr := r.KubectlCapture(ctx.Ctx, "-n", "scn-bgp", "get", "pod",
+		"-l", "app=scn-frr",
+		"--field-selector=status.phase=Running",
+		"-o", "jsonpath={.items[0].metadata.name}")
+	if ferr != nil || strings.TrimSpace(frrPod) == "" {
+		res.Assertions = append(res.Assertions, scenarios.Assertion{
+			Description: "scn-bgp/scn-frr pod available", OK: false,
+			Got: "missing (bgp-peer-frr not running?)",
+		})
+		return finalize(res)
+	}
+	frrPod = strings.TrimSpace(frrPod)
+
+	deadline := time.Now().Add(2 * time.Minute)
+	var lastTable string
+	hasGW := false
+	for time.Now().Before(deadline) {
+		bgpTable, _ := r.KubectlCapture(ctx.Ctx, "-n", "scn-bgp", "exec",
+			frrPod, "-c", "frr", "--",
+			"vtysh", "-c", "show bgp ipv4 unicast")
+		lastTable = bgpTable
+		if strings.Contains(bgpTable, "203.0.113.100") {
+			hasGW = true
+			break
+		}
+		select {
+		case <-ctx.Ctx.Done():
+			break
+		case <-time.After(5 * time.Second):
 		}
 	}
-	// [bonus] assertion — runs but doesn't fail the scenario. Lifting
-	// this requires BGP to actually establish (see bgp-peer-frr's
-	// Description for the documented gaps).
 	res.Assertions = append(res.Assertions, scenarios.Assertion{
-		Description: "[bonus] 5/5 curls through Gateway return nginx marker body (blocked by BGP gap — see bgp-peer-frr)",
+		Description: "FRR BGP table has 203.0.113.100/32 advertised by TMM",
+		OK:          hasGW,
+		Got:         oneLine(lastTable, 200),
+	})
+
+	// Also confirm the kernel route is installed (BGP→FIB transition).
+	frrKernelRoute, _ := r.KubectlCapture(ctx.Ctx, "-n", "scn-bgp", "exec",
+		frrPod, "-c", "frr", "--",
+		"ip", "route", "show", "203.0.113.100")
+	res.Assertions = append(res.Assertions, scenarios.Assertion{
+		Description: "FRR kernel route 203.0.113.100/32 installed via net1",
+		OK:          strings.Contains(frrKernelRoute, "net1"),
+		Got:         oneLine(frrKernelRoute, 150),
+	})
+
+	// 5 consecutive curls from inside FRR through the Gateway IP.
+	const marker = "kindbnkctl-scenario-httproute-e2e-OK"
+	const curls = 5
+	successCount := 0
+	var lastErr, lastBody string
+	// Ensure curl is present in the FRR image (alpine-ish base).
+	_ = r.Kubectl(ctx.Ctx, "-n", "scn-bgp", "exec", frrPod, "-c", "frr", "--",
+		"sh", "-c", "command -v curl >/dev/null 2>&1 || apk add --no-cache curl >/dev/null 2>&1 || true")
+	for i := 1; i <= curls; i++ {
+		body, err := r.KubectlCapture(ctx.Ctx, "-n", "scn-bgp", "exec",
+			frrPod, "-c", "frr", "--",
+			"curl", "-sS", "--fail", "--max-time", "8",
+			"-H", "Host: kindbnkctl.local",
+			"http://203.0.113.100/",
+		)
+		if err != nil {
+			lastErr = err.Error()
+			continue
+		}
+		lastBody = strings.TrimSpace(body)
+		if strings.Contains(body, marker) {
+			successCount++
+		}
+	}
+	curlOK := successCount == curls
+	got := fmt.Sprintf("%d/%d curls returned marker", successCount, curls)
+	if !curlOK && lastErr != "" {
+		got += " — last error: " + lastErr
+	} else if !curlOK {
+		got += " — last body: " + oneLine(lastBody, 120)
+	}
+	res.Assertions = append(res.Assertions, scenarios.Assertion{
+		Description: fmt.Sprintf("%d/%d end-to-end curls via Gateway return nginx marker body", curls, curls),
 		OK:          curlOK,
 		Got:         got,
 	})
 
-	return finalizeResultE2E(res)
-}
-
-// finalizeResultE2E treats the last assertion (the data-plane curl)
-// as a bonus that doesn't fail the scenario. Control-plane assertions
-// fail it as usual.
-func finalizeResultE2E(res scenarios.Result) scenarios.Result {
-	if len(res.Assertions) == 0 {
-		return finalizeResult(res)
-	}
-	required := res.Assertions[:len(res.Assertions)-1]
-	allOK := true
-	var failed []string
-	for _, a := range required {
-		if !a.OK {
-			allOK = false
-			failed = append(failed, a.Description)
-		}
-	}
-	bonus := res.Assertions[len(res.Assertions)-1]
-	if allOK {
-		res.Status = "ok"
-		if bonus.OK {
-			res.Summary = "control-plane reconciled + 5/5 end-to-end curls succeeded"
-		} else {
-			res.Summary = "control-plane reconciled (data-plane curl deferred — see bgp-peer-frr description)"
-		}
-	} else {
-		res.Status = "failed"
-		res.Summary = "failed: " + strings.Join(failed, "; ")
-	}
-	return res
+	return finalize(res)
 }
 
 func (s *scenario) Cleanup(ctx *scenarios.Context) error {
@@ -310,31 +270,12 @@ func (s *scenario) Cleanup(ctx *scenarios.Context) error {
 	return nil
 }
 
-// errString returns "" for nil err, otherwise a short error message.
-func errString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return oneLine(err.Error(), 200)
-}
-
-// oneLine trims and shortens for Assertion.Got.
-func oneLine(s string, n int) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
-}
-
-// finalizeResult derives Status and Summary from accumulated Assertions.
-func finalizeResult(res scenarios.Result) scenarios.Result {
+func finalize(res scenarios.Result) scenarios.Result {
 	if res.AllPassed() {
 		res.Status = "ok"
-		res.Summary = "control-plane reconciled + 5/5 end-to-end curls succeeded via BGP-learned route"
+		res.Summary = "control-plane reconciled + 5/5 end-to-end curls succeeded via NAD"
 	} else {
 		res.Status = "failed"
-		// Build a short summary of which assertion(s) failed.
 		var failed []string
 		for _, a := range res.Assertions {
 			if !a.OK {
@@ -344,4 +285,19 @@ func finalizeResult(res scenarios.Result) scenarios.Result {
 		res.Summary = "failed: " + strings.Join(failed, "; ")
 	}
 	return res
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return oneLine(err.Error(), 200)
+}
+
+func oneLine(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
