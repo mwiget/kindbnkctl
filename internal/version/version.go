@@ -86,14 +86,26 @@ type ResourceSpec struct {
 	MemoryGB int
 }
 
-// MinBaseline + MinWithBNKForge are intentionally left zero until we
-// have measured numbers from a real corporate macbook + linux box.
-// `doctor` displays "not yet measured" when both are zero rather than
-// surfacing made-up thresholds. Bump these constants when the smoke
-// runs settle on a reproducible floor.
+// MinBaseline + MinWithBNKForge are first-measurement floors captured
+// from a verified end-to-end smoke deployment on linux/amd64:
+//
+//   Cluster steady-state (after CNEInstance.Available=True, all 16
+//   components green, TMM 6/6 Running, License Active):
+//     - worker:         ~3.0 GB RSS, ~120m CPU sustained, peaks to ~1.2c
+//     - control-plane:  ~1.5 GB RSS, ~330m CPU sustained
+//     - total:          ~4.5 GB pod-attributed + ~1 GB kernel overhead
+//     - TMM alone:      1.17 GB RSS, 100m CPU
+//
+// Floor below adds ~1.5 GB / ~1 core of headroom for `kubectl top`,
+// `docker pull` bursts, and one operator-supplied test client. macOS
+// Docker Desktop adds VM overhead on top — bump 2 GB for that.
+//
+// MinWithBNKForge adds a modest extra for the in-cluster bnk-forge
+// agent plus the host-side bnk-forge stack. The host-side numbers are
+// still TBD; treat the extra as a guess until measured.
 var (
-	MinBaseline     = ResourceSpec{Cores: 0, MemoryGB: 0}
-	MinWithBNKForge = ResourceSpec{Cores: 0, MemoryGB: 0}
+	MinBaseline     = ResourceSpec{Cores: 4, MemoryGB: 6}
+	MinWithBNKForge = ResourceSpec{Cores: 5, MemoryGB: 8}
 )
 
 // Measured indicates whether the floor numbers above are real measured

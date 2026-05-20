@@ -1,5 +1,11 @@
 # kindbnkctl
 
+![BNK](https://img.shields.io/badge/BNK-2.3.0-0a3a5c)
+![Kubernetes](https://img.shields.io/badge/Kubernetes-1.30.8-326ce5?logo=kubernetes&logoColor=white)
+![kind](https://img.shields.io/badge/kind-v0.26%2B-1f6feb)
+![Go](https://img.shields.io/github/go-mod/go-version/mwiget/kindbnkctl)
+![Last commit](https://img.shields.io/github/last-commit/mwiget/kindbnkctl)
+
 Single-binary CLI that deploys F5 BIG-IP Next for Kubernetes (BNK) 2.3.0
 on a two-node [kind](https://kind.sigs.k8s.io/) cluster — one combined
 control-plane + worker, one worker dedicated to TMM running in demo
@@ -39,11 +45,39 @@ delete cluster` → docker network rm.
 
 ## Minimum host resources
 
-**TBD — not yet measured.** `kindbnkctl doctor` displays "not yet
-measured" until concrete numbers from real laptops settle into
-`internal/version/version.go::MinBaseline` and `MinWithBNKForge`. The
-two are intentionally separate so a low-spec corporate macbook can
-drop bnk-forge and still pass `doctor --strict`.
+First-measurement floor from a verified end-to-end run on linux/amd64
+(kindbnkctl init → e2e → CNEInstance.Available=True, all 16 components
+green, TMM 6/6 Running, License Active):
+
+| Baseline | With bnk-forge |
+|---|---|
+| **4 cores** | **5 cores** |
+| **6 GB RAM** | **8 GB RAM** |
+| **~8 GB free disk** | **~10 GB free disk** |
+
+Where the memory goes (measured at steady state):
+
+| Component | Working set | CPU |
+|---|---|---|
+| TMM pod (worker)        | ~1.17 GB | ~100m |
+| kube-apiserver          | ~900 MB  | ~150m |
+| All other F5 pods (20)  | ~1.0 GB  | ~470m |
+| Calico + coredns + etcd + kube-* | ~700 MB | ~150m |
+| Kernel / runtime per node | ~500 MB × 2 | — |
+| **Total cluster**       | **~4.5 GB pod RSS + ~1 GB overhead** | **~900m steady, peaks ~1.2c during TMM init** |
+
+Disk: 1.4 GB (kindest/node image) + ~2.4 GB (F5 container images pulled
+to the worker) + ~0.5 GB (cert-manager, alpine/k8s tooling, manifests)
++ ~2 GB headroom for kind cluster state and logs.
+
+macOS Docker Desktop runs the cluster inside a Linux VM — add ~2 GB
+to the baseline to cover that VM's own overhead. Same applies to
+Rancher Desktop / Colima.
+
+`kindbnkctl doctor` reports the host's actual CPU count and warns
+when it falls below `MinBaseline`. Override the constants in
+`internal/version/version.go` if your environment is tighter or
+fatter than the defaults.
 
 ## bnk-forge integration
 
