@@ -176,6 +176,116 @@ keys/            gitignored — FAR tgz + JWT live here
 .gitignore       excludes all secret material
 ```
 
+## Network topology
+
+The shape after a full `e2e` plus `bgp-peer-frr` (everything the
+other scenarios build on). Three docker bridge networks on the
+host; two kind node containers; a Multus-managed Linux bridge
+inside the worker that carries the BGP and scenario data plane:
+
+```
++----------------------------------------------------------------------------+
+| HOST (Linux or macOS Docker Desktop)                                       |
+|                                                                            |
+|   docker bridge kind        docker bridge bnk-internal    docker bridge    |
+|   172.18.0.0/16             198.18.100.0/24               bnk-external     |
+|                                                           203.0.113.0/24   |
+|       |                            |                            |          |
++-------|----------------------------|----------------------------|----------+
+        |                            |                            |
++-------+--------------+             |                            |
+| smoke-control-plane  |             |                            |
+| (kind node container)|             |                            |
+| eth0 172.18.0.2      |             |                            |
+|                      |             |                            |
+| pods (host-net none):|             |                            |
+|   Calico  Multus     |             |                            |
+|   FLO     CWC        |             |                            |
+|   cert-manager       |             |                            |
++----------------------+             |                            |
+                                     |                            |
++------------------------------------+----------------------------+----------+
+| smoke-worker  (kind node container)   label: app=f5-tmm                    |
+| eth0 172.18.0.3       eth1 198.18.100.3            eth2 203.0.113.3        |
+|     (kind)             (bnk-internal — scenery)    (bnk-external — scenery)|
+|                                                                            |
+|   +==================================================================+    |
+|   ||  br-bnk-bgp   Linux bridge in node netns, created by bridge-CNI  ||   |
+|   ||  Multus NetworkAttachmentDefinition: name=bnk-bgp                ||   |
+|   ||  host-local IPAM 192.168.99.20-250 on /24                        ||   |
+|   +=====|=================|===============================|==========+    |
+|         |                 |                               |                |
+|   +-----+----------+ +----+-----------+         +---------+-----------+    |
+|   | TMM pod        | | FRR pod        |         | scenario backends   |    |
+|   | ns=default     | | ns=scn-bgp     |         | (per-scenario pods, |    |
+|   | app=f5-tmm     | | app=scn-frr    |         |  attached via NAD)  |    |
+|   | 6 containers:  | | 1 container:   |         |  - ext-backend      |    |
+|   |   f5-tmm       | |   frr          |         |    (extrespool)     |    |
+|   |   f5-tmm-routing| |   (zebra+bgpd)|         |                     |    |
+|   |     = ZeBOS    | |                |         |                     |    |
+|   |   debug        | |                |         |                     |    |
+|   |   blobd        | |                |         |                     |    |
+|   |   toda-observer| |                |         |                     |    |
+|   |   ipsec-tail   | |                |         |                     |    |
+|   |                | |                |         |                     |    |
+|   | net1 192.168.  | | net1 192.168.  |         | net1 192.168.99.Z   |    |
+|   |   99.X/24      |<->  99.Y/24      |         | (per pod)           |    |
+|   |  (Multus, BGP +| |  (Multus, BGP +|         |                     |    |
+|   |   data plane)  | |   curl client) |         |                     |    |
+|   |                | |                |         |                     |    |
+|   | eth0 10.244.x/32 eth0 10.244.x/32 |         | eth0 10.244.x/32    |    |
+|   |  (Calico, kube-| |  (Calico)      |         |  (Calico)           |    |
+|   |   api + ZeBOS  | |                |         |                     |    |
+|   |   bgpd listen) | |                |         |                     |    |
+|   | xeth0 (no IP)  | |                |         |                     |    |
+|   |  (Calico veth#2| |                |         |                     |    |
+|   |   TMM userspace| |                |         |                     |    |
+|   |   raw frames)  | |                |         |                     |    |
+|   | tmm  169.254.  | |                |         |                     |    |
+|   |   0.253/24     | |                |         |                     |    |
+|   |  (virtio, pod  | |                |         |                     |    |
+|   |   default route| |                |         |                     |    |
+|   |   to TMM DP)   | |                |         |                     |    |
+|   | tunl0  DOWN    | |                |         |                     |    |
+|   |  (Calico IPIP, | |                |         |                     |    |
+|   |   unused)      | |                |         |                     |    |
+|   +----------------+ +----------------+         +---------------------+    |
+|                                                                            |
+|   DaemonSets in node netns:                                                |
+|     Calico-node          Multus (thick)         CoreMond (if how-to #4)    |
+|                                                                            |
+|   Other pods (default ns): FLO, CWC, cert-manager, ...                     |
++----------------------------------------------------------------------------+
+
+BGP session:
+  TMM/ZeBOS (AS 65000) ────── net1 ⇄ net1, L2 over br-bnk-bgp ──────►  FRR (AS 65001)
+                                                                       listen-range
+                                                                       192.168.99.0/24
+                                                                       peer-group from-tmm
+
+  TMM ZeBOS advertises (redistribute kernel, at router-bgp scope —
+  silently dropped if placed inside address-family ipv4):
+    192.168.99.0/24      (net1 connected)
+    203.0.113.100/32     Gateway scn-gateway       (http-routing-e2e)
+    203.0.113.101/32     Gateway scn-extres-gw     (external-resource-pool)
+    203.0.113.102/32     Gateway scn-proxy-gw      (proxy-protocol-l4)
+
+  FRR installs each /32 as a kernel route:
+    203.0.113.100/32 via 192.168.99.X dev net1 proto bgp
+  so any client in the FRR pod can curl the Gateway addresses
+  end-to-end via the NAD bridge, completely bypassing TMM's eth0
+  TCP hook. This is what http-routing-e2e and external-resource-pool
+  rely on for their data-plane assertions.
+```
+
+Key knob: `CNEInstance.spec.advanced.tmm.env TMM_MAPRES_ADDL_VETHS_ON_DP=FALSE`
+is set by `bgp-peer-frr`. With this `TRUE` (TMM's default for
+demoMode), `mapres` grabs `net1` for the userspace data plane and
+flushes its kernel IP — ZeBOS then has nothing to source-bind
+to. Flipping it `FALSE` lets `net1` stay a normal Linux interface
+with its NAD-assigned IP so the kernel TCP stack handles BGP
+traffic ordinarily.
+
 ## Scenarios — testing F5 how-tos against the running cluster
 
 After `e2e` brings the cluster up, drive named test scenarios against
@@ -204,15 +314,15 @@ Scoring of the [F5 BNK how-tos index](https://clouddocs.f5.com/bigip-next-for-ku
 
 | # | How-to | Rating | Scenario |
 |---|---|---|---|
-| 1 | [Restrict access to sensitive data](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-admin-access-api.html) | 🟢 green | [`cwc-admin-access`](internal/scenarios/cwcadminaccess) |
+| 1 | [Restrict access to sensitive data](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-admin-access-api.html) | 🟢 | [`cwc-admin-access`](internal/scenarios/cwcadminaccess) |
 | 2 | [Components needing cluster-wide access](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-whole-cluster.html) | — | not yet implemented |
-| 3 | [Set up dynamic routing with BGP](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-zebos-config.html) | 🟢 green | [`bgp-peer-frr`](internal/scenarios/bgppeer) |
-| 4 | [Set up core file collection](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-coremond.html) | 🟡 amber | [`core-file-collection`](internal/scenarios/corefiles) |
+| 3 | [Set up dynamic routing with BGP](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-zebos-config.html) | 🟢 | [`bgp-peer-frr`](internal/scenarios/bgppeer) |
+| 4 | [Set up core file collection](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-coremond.html) | 🟡 | [`core-file-collection`](internal/scenarios/corefiles) |
 | 6 | [Configure Token Counting and Enforcement](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/configure-token-counting-and-enforcement.html) | — | not yet implemented |
 | 7 | [Configure AI Traffic Optimization Features](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/ai-related-features/index.html) | — | not yet implemented |
-| 8 | [HTTP traffic steering with Gateway API HTTPRoute](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/Configure-HTTP-traffic-steering-with-Gateway-API-HTTPRoute.html) | 🟢 green | [`http-routing-e2e`](internal/scenarios/httproutee2e) |
-| 9 | [Proxy Protocol iRule support for L4 routes](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/proxy-protocol.html) | 🟡 amber | [`proxy-protocol-l4`](internal/scenarios/proxyprotocol) |
-| 10 | [Load Balance Traffic to External Resources](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/configure-external-resource-load-balancing.html) | 🟢 green | [`external-resource-pool`](internal/scenarios/extrespool) |
+| 8 | [HTTP traffic steering with Gateway API HTTPRoute](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/Configure-HTTP-traffic-steering-with-Gateway-API-HTTPRoute.html) | 🟢 | [`http-routing-e2e`](internal/scenarios/httproutee2e) |
+| 9 | [Proxy Protocol iRule support for L4 routes](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/proxy-protocol.html) | 🟡 | [`proxy-protocol-l4`](internal/scenarios/proxyprotocol) |
+| 10 | [Load Balance Traffic to External Resources](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/configure-external-resource-load-balancing.html) | 🟢 | [`external-resource-pool`](internal/scenarios/extrespool) |
 
 How-tos **#5** ([DOCA Offloads on DPU](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/traffic-offload.html)),
 **#11** ([Static Active-Standby Interface Bonding](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/configure-static-active-standby-bonding.html)),
@@ -223,8 +333,8 @@ and a real upstream BIG-IP GTM box (#12). They remain valid BNK
 features outside the kindbnkctl shape.
 
 Ratings are assigned only after a scenario is built and run.
-Implemented scenarios that pan out land as 🟢 green; ones that
-hit a real architectural barrier on kind+demoMode get 🟡 amber
+Implemented scenarios that pan out land as 🟢; ones that
+hit a real architectural barrier on kind+demoMode get 🟡
 with the gap documented in the scenario's `Description()`.
 Empty cell = scenario not yet built.
 
