@@ -2,6 +2,7 @@
 
 F5 how-to: [Set up dynamic routing with BGP](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-zebos-config.html)
 &nbsp;·&nbsp; Rating: 🟢
+&nbsp;·&nbsp; Wall time: **~3m04s** (TMM rollover + passwd.conf inject + BGP convergence)
 
 Foundation scenario. Stands up everything other data-plane
 scenarios depend on:

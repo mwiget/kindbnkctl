@@ -3,6 +3,7 @@
 F5 how-to: [Set up core file collection](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-coremond.html)
 &nbsp;·&nbsp; Rating: 🟡
 &nbsp;·&nbsp; Depends on: nothing
+&nbsp;·&nbsp; Wall time: **~3m01s** (full TMM restart to pick up hostPath mounts)
 
 The how-to is a single CNEInstance toggle:
 

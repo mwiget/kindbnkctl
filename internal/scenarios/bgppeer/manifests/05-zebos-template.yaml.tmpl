@@ -20,12 +20,18 @@ data:
       bgp log-neighbor-changes
       bgp graceful-restart restart-time 120
       no bgp default ipv4-unicast
-      ! Redistribute kernel routes (incl. the connected 192.168.99.0/24
-      ! on net1 and any /32 the http-routing scenario installs for the
-      ! Gateway IP). Must appear at the router-bgp scope, not inside
-      ! address-family — F5 ZeBOS silently drops it from
-      ! `address-family ipv4` and there's no visible error.
+      ! Redistribute both kernel routes (Gateway /32s installed
+      ! by FLO; route type "K" in ZeBOS RIB) and connected routes
+      ! (net1's 192.168.99.0/24; route type "C"). ZeBOS treats
+      ! C and K as distinct origins — `redistribute kernel` alone
+      ! does NOT pick up directly-connected interface subnets, so
+      ! both lines are needed for FRR to learn the NAD subnet
+      ! plus any per-scenario Gateway IP.
+      ! Both must appear at router-bgp scope, not inside
+      ! address-family — F5 ZeBOS silently drops them from
+      ! `address-family ipv4` with no visible error.
       redistribute kernel
+      redistribute connected
       !
       neighbor {{.FRRNetIP}} remote-as 65001
       neighbor {{.FRRNetIP}} update-source net1

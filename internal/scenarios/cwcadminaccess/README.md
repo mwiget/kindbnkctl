@@ -3,6 +3,7 @@
 F5 how-to: [Restrict access to sensitive data](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-admin-access-api.html)
 &nbsp;·&nbsp; Rating: 🟢
 &nbsp;·&nbsp; Depends on: nothing (runs standalone, no `bgp-peer-frr` needed)
+&nbsp;·&nbsp; Wall time: **~14s** (the fastest scenario — just deploys a curl probe pod)
 
 Demonstrates BNK's dual-gate access control on the Cluster-Wide
 Controller (CWC) admin API at

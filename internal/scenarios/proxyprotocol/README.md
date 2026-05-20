@@ -3,6 +3,7 @@
 F5 how-to: [Proxy Protocol iRule support for L4 routes](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/proxy-protocol.html)
 &nbsp;·&nbsp; Rating: 🟡
 &nbsp;·&nbsp; Depends on: [`bgp-peer-frr`](../bgppeer)
+&nbsp;·&nbsp; Wall time: **~24s** (no TMM restart)
 
 Demonstrates BNK's PROXY-protocol iRule pattern on a TCP route.
 Three new BNK CRs come together:
