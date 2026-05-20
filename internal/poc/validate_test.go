@@ -78,20 +78,21 @@ func TestValidateRules(t *testing.T) {
 		{"missing cne_manifest",
 			func(p *PoC) { p.Versions.CNEManifest = "" },
 			"cne_manifest"},
-		{"missing networks.internal.name",
-			func(p *PoC) { p.Networks.Internal.Name = "" },
-			"networks.internal.name"},
-		{"missing networks.internal.subnet",
-			func(p *PoC) { p.Networks.Internal.Subnet = "" },
-			"networks.internal.subnet"},
+		// Networks is now optional — cluster up doesn't create the
+		// bnk-internal / bnk-external bridges anymore. We still
+		// validate shape when fields ARE populated (CIDR parse +
+		// duplicate-name check), so cover those cases.
 		{"bad networks.internal.subnet",
-			func(p *PoC) { p.Networks.Internal.Subnet = "not-a-cidr" },
+			func(p *PoC) {
+				p.Networks.Internal.Name = "x"
+				p.Networks.Internal.Subnet = "not-a-cidr"
+			},
 			"networks.internal.subnet"},
-		{"missing networks.external.name",
-			func(p *PoC) { p.Networks.External.Name = "" },
-			"networks.external.name"},
 		{"duplicate network names",
-			func(p *PoC) { p.Networks.External.Name = p.Networks.Internal.Name },
+			func(p *PoC) {
+				p.Networks.Internal.Name = "dup"
+				p.Networks.External.Name = "dup"
+			},
 			"must differ"},
 		{"missing bnk.far_key_ref",
 			func(p *PoC) { p.BNK.FARKeyRef = "" },
