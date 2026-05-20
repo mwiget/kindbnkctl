@@ -94,12 +94,17 @@ func runDestroy(ctx context.Context, out io.Writer, f *destroyFlags) error {
 		}
 	}
 
-	// 3. docker network rm.
+	// 3. docker network rm. Best-effort cleanup for older PoCs that
+	// had bnk-internal / bnk-external bridges; new PoCs leave the
+	// Networks struct empty so this loop is a no-op.
 	fmt.Fprintln(out, "[3/3] docker network rm ...")
 	if f.keepNetworks {
 		fmt.Fprintln(out, "      skipped (--keep-networks)")
 	} else if rt != "" {
 		for _, n := range []string{p.Networks.Internal.Name, p.Networks.External.Name} {
+			if n == "" {
+				continue
+			}
 			if err := dc.RemoveNetwork(ctx, n); err != nil {
 				fmt.Fprintf(out, "      WARN: %v\n", err)
 			}

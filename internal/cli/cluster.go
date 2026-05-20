@@ -88,14 +88,10 @@ func runClusterUp(ctx context.Context, out io.Writer, f *clusterUpFlags) error {
 		return fmt.Errorf("poc.yaml is invalid — fix above and re-run `kindbnkctl validate`")
 	}
 
-	fmt.Fprintf(out, "PoC:        %s  (BNK %s)\n", p.Metadata.Name, p.Metadata.BNKVersion)
-	fmt.Fprintf(out, "Cluster:    %s  (provider=%s)\n", p.Cluster.Name, p.Cluster.Provider)
-	fmt.Fprintf(out, "Networks:   %s (%s), %s (%s)\n\n",
-		p.Networks.Internal.Name, p.Networks.Internal.Subnet,
-		p.Networks.External.Name, p.Networks.External.Subnet)
+	fmt.Fprintf(out, "PoC:        %s  (BNK %s)\n\n", p.Metadata.Name, p.Metadata.BNKVersion)
 
 	// 1. Container runtime.
-	fmt.Fprintln(out, "[1/7] Container-runtime preflight ...")
+	fmt.Fprintln(out, "[1/6] Container-runtime preflight ...")
 	rt, err := cluster.Detect(ctx, cluster.Runtime(p.Cluster.Provider))
 	if err != nil {
 		return err
@@ -106,10 +102,9 @@ func runClusterUp(ctx context.Context, out io.Writer, f *clusterUpFlags) error {
 	if err := kc.EnsurePresent(); err != nil {
 		return err
 	}
-	dc := &cluster.DockerCLI{Runtime: rt, Out: prefixWriter{w: out, prefix: "      | "}}
 
 	// 2. Render kind.yaml + create cluster (idempotent).
-	fmt.Fprintln(out, "[2/7] Rendering kind.yaml + ensuring cluster exists ...")
+	fmt.Fprintln(out, "[2/6] Rendering kind.yaml + ensuring cluster exists ...")
 	kindCfg, err := cluster.RenderKindConfig(cluster.KindConfig{Name: p.Cluster.Name})
 	if err != nil {
 		return err
@@ -135,7 +130,7 @@ func runClusterUp(ctx context.Context, out io.Writer, f *clusterUpFlags) error {
 	}
 
 	// 3. Fetch kubeconfig early — Calico apply uses it.
-	fmt.Fprintln(out, "[3/7] Fetching kubeconfig ...")
+	fmt.Fprintln(out, "[3/6] Fetching kubeconfig ...")
 	kubeconfigPath := filepath.Join(repo, "artifacts", "kubeconfig")
 	if err := kc.WriteKubeconfig(ctx, p.Cluster.Name, kubeconfigPath); err != nil {
 		return err
@@ -149,7 +144,7 @@ func runClusterUp(ctx context.Context, out io.Writer, f *clusterUpFlags) error {
 	// reconciles the License CRD. We install just the CRD (not the
 	// full Multus daemonset) since the kind cluster doesn't actually
 	// route through Multus.
-	fmt.Fprintln(out, "[4/7] Applying Calico CNI + NetworkAttachmentDefinition CRD ...")
+	fmt.Fprintln(out, "[4/6] Applying Calico CNI + NetworkAttachmentDefinition CRD ...")
 	r := &deploy.Runner{
 		KubeconfigPath: kubeconfigPath,
 		HelmHome:       filepath.Join(repo, "artifacts", "helm-home"),
@@ -172,13 +167,13 @@ func runClusterUp(ctx context.Context, out io.Writer, f *clusterUpFlags) error {
 		fmt.Fprintf(out, "      WARN: calico-kube-controllers not Available in 5min: %v\n", err)
 	}
 
-	// 5. Docker networks: create + attach to both nodes.
-	fmt.Fprintln(out, "[5/7] Creating + attaching docker networks ...")
-	for _, n := range []poc.DockerNetwork{p.Networks.Internal, p.Networks.External} {
-		if err := dc.CreateBridgeNetwork(ctx, n.Name, n.Subnet); err != nil {
-			return err
-		}
-	}
+	// 5. Label the worker node for TMM. We dropped the
+	// bnk-internal / bnk-external docker bridges that earlier
+	// versions of kindbnkctl attached to the kind nodes — no
+	// scenario actually consumed them, and the Gateway IP pool
+	// (203.0.113.0/24) is plumbed entirely via the bnk-bgp Multus
+	// NAD bridge that scenarios create on demand.
+	dc := &cluster.DockerCLI{Runtime: rt, Out: prefixWriter{w: out, prefix: "      | "}}
 	nodes, err := dc.NodeContainers(ctx, p.Cluster.Name)
 	if err != nil {
 		return err
@@ -186,16 +181,7 @@ func runClusterUp(ctx context.Context, out io.Writer, f *clusterUpFlags) error {
 	if len(nodes) == 0 {
 		return fmt.Errorf("no kind node containers found for cluster %q — `kind get clusters` says otherwise?", p.Cluster.Name)
 	}
-	for _, node := range nodes {
-		for _, n := range []string{p.Networks.Internal.Name, p.Networks.External.Name} {
-			if err := dc.ConnectNetwork(ctx, n, node); err != nil {
-				return err
-			}
-		}
-	}
-
-	// 6. Label the worker node for TMM.
-	fmt.Fprintln(out, "[6/7] Labelling worker node for TMM ...")
+	fmt.Fprintln(out, "[5/6] Labelling worker node for TMM ...")
 	workerNode := p.Cluster.Name + "-worker"
 	labelKey, labelVal := p.BNK.TMMLabel()
 	if err := r.Kubectl(ctx, "label", "node", workerNode,
@@ -203,8 +189,8 @@ func runClusterUp(ctx context.Context, out io.Writer, f *clusterUpFlags) error {
 		return fmt.Errorf("label %s %s=%s: %w", workerNode, labelKey, labelVal, err)
 	}
 
-	// 7. bnk-forge auto-registration (best-effort).
-	fmt.Fprintln(out, "[7/7] bnk-forge registration ...")
+	// 6. bnk-forge auto-registration (best-effort).
+	fmt.Fprintln(out, "[6/6] bnk-forge registration ...")
 	if f.skipBNKForge || !p.BNKForge.Enabled {
 		fmt.Fprintln(out, "      skipped (disabled or --skip-bnk-forge)")
 	} else {

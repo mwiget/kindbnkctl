@@ -1,11 +1,14 @@
-# External-style backend running nginx on the bnk-bgp Multus NAD.
-# Stands in for "a backend outside k8s networking" — uses the same
-# bridge (br-bnk-bgp) TMM has a net1 interface on, so TMM can reach
-# the pod IP at L2 without needing kernel-route plumbing.
+# External-style backend running nginx as a plain Calico pod (no
+# NAD attachment, no nodeAffinity). The Pool CR references the
+# pod's Calico podIP — TMM reaches it via normal cross-pod
+# Kubernetes networking, which is exactly what BNK does in
+# production when a Pool member is any reachable IP.
 #
-# References the NAD via the cross-namespace form `default/bnk-bgp`
-# so all pods on this bridge share the host-local IPAM state and
-# don't fight over IPs.
+# Earlier iterations attached this pod to the bnk-bgp NAD to
+# "simulate external", but that coupled the backend to the same
+# node as TMM (bridge CNI is per-node) and didn't add anything the
+# Calico path doesn't already provide. Decoupling lets Kubernetes
+# schedule the backend anywhere.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -28,24 +31,7 @@ spec:
   template:
     metadata:
       labels: {app: ext-backend}
-      annotations:
-        # Attach the cluster-wide bnk-bgp NAD on net1. host-local
-        # IPAM auto-allocates a 192.168.99.x address; the scenario
-        # discovers it at runtime and renders it into the Pool CR.
-        k8s.v1.cni.cncf.io/networks: |
-          [{"name":"bnk-bgp","interface":"net1"}]
     spec:
-      # Co-locate on the f5-tmm-labelled node — bridge CNI is
-      # per-node, so the backend must share a node with TMM for the
-      # net1 traffic to bridge.
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: app
-                operator: In
-                values: [f5-tmm]
       containers:
       - name: nginx
         image: nginx:1.27-alpine

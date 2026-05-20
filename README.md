@@ -179,109 +179,88 @@ keys/            gitignored — FAR tgz + JWT live here
 ## Network topology
 
 The shape after a full `e2e` plus `bgp-peer-frr` (everything the
-other scenarios build on). Three docker bridge networks on the
-host; two kind node containers; a Multus-managed Linux bridge
-inside the worker that carries the BGP and scenario data plane.
-
-![Network topology](docs/topology.png)
-
-Source is [`docs/topology.mmd`](docs/topology.mmd) (Mermaid).
-Rebuild with:
-
-```bash
-mmdc -i docs/topology.mmd -o docs/topology.png -t neutral -b white -w 2400
-mmdc -i docs/topology.mmd -o docs/topology.svg -t neutral -b white
-```
-
-<details>
-<summary>ASCII version (handy for grep / offline reading)</summary>
+other scenarios build on). One docker bridge on the host (the
+kind cluster's own); two kind node containers; a Multus-managed
+Linux bridge inside the worker carries BGP traffic between TMM
+and the FRR helper pod. Scenario backends are plain Calico pods
+— the Gateway IPs they serve get plumbed via BGP, so the
+backends don't need to be on the NAD themselves.
 
 ```
 +----------------------------------------------------------------------------+
-| HOST (Linux or macOS Docker Desktop)                                       |
+| HOST  (Linux or macOS Docker Desktop)                                      |
 |                                                                            |
-|   docker bridge kind        docker bridge bnk-internal    docker bridge    |
-|   172.18.0.0/16             198.18.100.0/24               bnk-external     |
-|                                                           203.0.113.0/24   |
-|       |                            |                            |          |
-+-------|----------------------------|----------------------------|----------+
-        |                            |                            |
-+-------+--------------+             |                            |
-| smoke-control-plane  |             |                            |
-| (kind node container)|             |                            |
-| eth0 172.18.0.2      |             |                            |
-|                      |             |                            |
-| pods (host-net none):|             |                            |
-|   Calico  Multus     |             |                            |
-|   FLO     CWC        |             |                            |
-|   cert-manager       |             |                            |
-+----------------------+             |                            |
-                                     |                            |
-+------------------------------------+----------------------------+----------+
-| smoke-worker  (kind node container)   label: app=f5-tmm                    |
-| eth0 172.18.0.3       eth1 198.18.100.3            eth2 203.0.113.3        |
-|     (kind)             (bnk-internal — scenery)    (bnk-external — scenery)|
-|                                                                            |
-|   +==================================================================+    |
-|   ||  br-bnk-bgp   Linux bridge in node netns, created by bridge-CNI  ||   |
-|   ||  Multus NetworkAttachmentDefinition: name=bnk-bgp                ||   |
-|   ||  host-local IPAM 192.168.99.20-250 on /24                        ||   |
-|   +=====|=================|===============================|==========+    |
-|         |                 |                               |                |
-|   +-----+----------+ +----+-----------+         +---------+-----------+    |
-|   | TMM pod        | | FRR pod        |         | scenario backends   |    |
-|   | ns=default     | | ns=scn-bgp     |         | (per-scenario pods, |    |
-|   | app=f5-tmm     | | app=scn-frr    |         |  attached via NAD)  |    |
-|   | 6 containers:  | | 1 container:   |         |  - ext-backend      |    |
-|   |   f5-tmm       | |   frr          |         |    (extrespool)     |    |
-|   |   f5-tmm-routing| |   (zebra+bgpd)|         |                     |    |
-|   |     = ZeBOS    | |                |         |                     |    |
-|   |   debug        | |                |         |                     |    |
-|   |   blobd        | |                |         |                     |    |
-|   |   toda-observer| |                |         |                     |    |
-|   |   ipsec-tail   | |                |         |                     |    |
-|   |                | |                |         |                     |    |
-|   | net1 192.168.  | | net1 192.168.  |         | net1 192.168.99.Z   |    |
-|   |   99.X/24      |<->  99.Y/24      |         | (per pod)           |    |
-|   |  (Multus, BGP +| |  (Multus, BGP +|         |                     |    |
-|   |   data plane)  | |   curl client) |         |                     |    |
-|   |                | |                |         |                     |    |
-|   | eth0 10.244.x/32 eth0 10.244.x/32 |         | eth0 10.244.x/32    |    |
-|   |  (Calico, kube-| |  (Calico)      |         |  (Calico)           |    |
-|   |   api + ZeBOS  | |                |         |                     |    |
-|   |   bgpd listen) | |                |         |                     |    |
-|   | xeth0 (no IP)  | |                |         |                     |    |
-|   |  (Calico veth#2| |                |         |                     |    |
-|   |   TMM userspace| |                |         |                     |    |
-|   |   raw frames)  | |                |         |                     |    |
-|   | tmm  169.254.  | |                |         |                     |    |
-|   |   0.253/24     | |                |         |                     |    |
-|   |  (virtio, pod  | |                |         |                     |    |
-|   |   default route| |                |         |                     |    |
-|   |   to TMM DP)   | |                |         |                     |    |
-|   | tunl0  DOWN    | |                |         |                     |    |
-|   |  (Calico IPIP, | |                |         |                     |    |
-|   |   unused)      | |                |         |                     |    |
-|   +----------------+ +----------------+         +---------------------+    |
-|                                                                            |
-|   DaemonSets in node netns:                                                |
-|     Calico-node          Multus (thick)         CoreMond (if how-to #4)    |
-|                                                                            |
-|   Other pods (default ns): FLO, CWC, cert-manager, ...                     |
-+----------------------------------------------------------------------------+
+|   docker bridge: kind  172.18.0.0/16                                       |
+|       |                                                                    |
++-------|--------------------------------------------------------------------+
+        |
++-------+--------------+   +-------------------------------------------------+
+| smoke-control-plane  |   | smoke-worker  (kind node container)             |
+| (kind node container)|   | label: app=f5-tmm                               |
+| eth0 172.18.0.2      |   | eth0 172.18.0.3                                 |
+|                      |   |                                                 |
+| pods:                |   |  +-------------------------------------------+  |
+|   Calico  Multus     |   |  | TMM pod        ns=default  app=f5-tmm     |  |
+|   FLO     CWC        |   |  | 6 containers:                             |  |
+|   cert-manager       |   |  |   f5-tmm                                  |  |
+|   ...                |   |  |   f5-tmm-routing  (= ZeBOS)               |  |
++----------------------+   |  |   debug  blobd  toda-observer  ipsec      |  |
+                           |  | Interfaces:                               |  |
+                           |  |   net1   192.168.99.X/24  Multus NAD      |  |
+                           |  |          (BGP source, no eth0 hook)       |  |
+                           |  |   eth0   10.244.x.x/32   Calico (kube-API |  |
+                           |  |          + ZeBOS bgpd kernel listener)    |  |
+                           |  |   xeth0  no IP    Calico veth #2, TMM     |  |
+                           |  |          userspace raw frames             |  |
+                           |  |   tmm    169.254.0.253/24  virtio, pod    |  |
+                           |  |          default route to TMM DP          |  |
+                           |  |   tunl0  DOWN     Calico IPIP placeholder |  |
+                           |  +-------------------------------------------+  |
+                           |  +-------------------------------------------+  |
+                           |  | FRR pod        ns=scn-bgp  app=scn-frr    |  |
+                           |  | 1 container:   frr (zebra + bgpd)         |  |
+                           |  |   net1   192.168.99.Y/24  Multus NAD      |  |
+                           |  |          (BGP peer + curl source)         |  |
+                           |  |   eth0   10.244.x.x/32   Calico           |  |
+                           |  +-------------------------------------------+  |
+                           |             ^                                   |
+                           |             |  BGP TCP/179 + scenario curls     |
+                           |             v  over br-bnk-bgp, L2              |
+                           |  +========================================+     |
+                           |  ||  br-bnk-bgp   Linux bridge in node    ||    |
+                           |  ||  netns, created by the bridge-CNI     ||    |
+                           |  ||  plugin via NetworkAttachmentDefinition||   |
+                           |  ||  name=bnk-bgp ; host-local IPAM       ||    |
+                           |  ||  192.168.99.20-250 on /24             ||    |
+                           |  +========================================+     |
+                           |                                                 |
+                           |  +-------------------------------------------+  |
+                           |  | scenario backends  (plain Calico pods —   |  |
+                           |  | no NAD attachment, no node pinning)       |  |
+                           |  |   nginx        ns=scn-httproute-e2e       |  |
+                           |  |   pp-backend   ns=scn-proxy               |  |
+                           |  |   ext-backend  ns=scn-extres   (Pool      |  |
+                           |  |     member references its Calico podIP)   |  |
+                           |  +-------------------------------------------+  |
+                           |                                                 |
+                           |  DaemonSets in node netns:                      |
+                           |    Calico-node     Multus thick                 |
+                           |    f5-coremond (if how-to #4 ran)               |
+                           +-------------------------------------------------+
 
 BGP session:
-  TMM/ZeBOS (AS 65000) ────── net1 ⇄ net1, L2 over br-bnk-bgp ──────►  FRR (AS 65001)
-                                                                       listen-range
-                                                                       192.168.99.0/24
-                                                                       peer-group from-tmm
+  TMM/ZeBOS  AS 65000  =======  net1 <-> net1, L2 over br-bnk-bgp  =======>  FRR  AS 65001
+                                                                             listen-range
+                                                                             192.168.99.0/24
+                                                                             peer-group
+                                                                             from-tmm
 
   TMM ZeBOS advertises (redistribute kernel, at router-bgp scope —
   silently dropped if placed inside address-family ipv4):
     192.168.99.0/24      (net1 connected)
-    203.0.113.100/32     Gateway scn-gateway       (http-routing-e2e)
-    203.0.113.101/32     Gateway scn-extres-gw     (external-resource-pool)
-    203.0.113.102/32     Gateway scn-proxy-gw      (proxy-protocol-l4)
+    203.0.113.100/32     Gateway scn-gateway        (http-routing-e2e)
+    203.0.113.101/32     Gateway scn-extres-gw      (external-resource-pool)
+    203.0.113.102/32     Gateway scn-proxy-gw       (proxy-protocol-l4)
 
   FRR installs each /32 as a kernel route:
     203.0.113.100/32 via 192.168.99.X dev net1 proto bgp
@@ -290,8 +269,6 @@ BGP session:
   TCP hook. This is what http-routing-e2e and external-resource-pool
   rely on for their data-plane assertions.
 ```
-
-</details>
 
 Key knob: `CNEInstance.spec.advanced.tmm.env TMM_MAPRES_ADDL_VETHS_ON_DP=FALSE`
 is set by `bgp-peer-frr`. With this `TRUE` (TMM's default for

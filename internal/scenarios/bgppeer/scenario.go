@@ -34,6 +34,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"os/exec"
 	"strings"
 	"text/template"
 	"time"
@@ -145,6 +146,15 @@ func (s *scenario) Apply(ctx *scenarios.Context) error {
 	// 1. Multus install (idempotent — skip if DaemonSet already exists).
 	if err := ensureMultus(ctx); err != nil {
 		return fmt.Errorf("ensure Multus: %w", err)
+	}
+
+	// 1a. Install the bridge CNI plugin on every kind node. The
+	// kind base image ships Calico + a few standard plugins
+	// (host-local, loopback, portmap, ptp, tuning) but NOT bridge.
+	// Without it, the bnk-bgp NetworkAttachmentDefinition fails
+	// with "failed to find plugin 'bridge' in path [/opt/cni/bin]".
+	if err := ensureBridgeCNI(ctx); err != nil {
+		return fmt.Errorf("install bridge CNI plugin on kind nodes: %w", err)
 	}
 
 	// 2. Namespace + NAD + FRR config + FRR Deployment.
@@ -458,6 +468,54 @@ func discoverNet1(ctx *scenarios.Context, namespace, labelSelector string) (stri
 		}
 	}
 	return "", fmt.Errorf("bnk-bgp entry not found in network-status: %q", oneLine(netStatus, 300))
+}
+
+// ensureBridgeCNI downloads the containernetworking/plugins
+// release tarball into each kind node and extracts just the
+// `bridge` binary into /opt/cni/bin/bridge. Idempotent — skips
+// nodes where the binary is already present.
+//
+// Why we don't bake this into `cluster up`: the bridge plugin
+// is only needed when a scenario uses a bridge-CNI-backed NAD,
+// which is the bgp-peer-frr scenario's choice. Other deployments
+// of kindbnkctl that never run BGP scenarios don't need it.
+func ensureBridgeCNI(ctx *scenarios.Context) error {
+	r := ctx.Runner
+	out, _ := r.KubectlCapture(ctx.Ctx, "get", "nodes",
+		"-o", "jsonpath={range .items[*]}{.metadata.name}\n{end}")
+	nodes := strings.Fields(out)
+	if len(nodes) == 0 {
+		return fmt.Errorf("no kind nodes found")
+	}
+	const url = "https://github.com/containernetworking/plugins/releases/download/v1.5.1/cni-plugins-linux-amd64-v1.5.1.tgz"
+	// Single-line POSIX sh script: short-circuit if the bridge
+	// binary is already present, otherwise download the plugins
+	// tarball, extract bridge, install it, clean up.
+	script := `set -e; ` +
+		`if [ -x /opt/cni/bin/bridge ]; then echo present; exit 0; fi; ` +
+		`cd /tmp; ` +
+		`curl -fsSL -o plugins.tgz ` + url + `; ` +
+		`tar xzf plugins.tgz ./bridge; ` +
+		`install -m 0755 bridge /opt/cni/bin/bridge; ` +
+		`rm -f plugins.tgz bridge; ` +
+		`echo installed`
+	for _, n := range nodes {
+		fmt.Fprintf(ctx.Out, "      | bridge CNI on %s ... ", n)
+		// docker exec rather than crictl — kind nodes are docker
+		// containers and this runs from the host. Use os/exec
+		// directly because Runner doesn't expose a generic
+		// shell-exec method (and bumping its surface for one
+		// scenario isn't worth it).
+		cmd := exec.CommandContext(ctx.Ctx, "docker", "exec", n, "sh", "-c", script)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			fmt.Fprintln(ctx.Out, "ERROR")
+			return fmt.Errorf("install bridge plugin on %s: %w (output: %s)", n, err, strings.TrimSpace(string(out)))
+		}
+		fmt.Fprintln(ctx.Out, strings.TrimSpace(string(out)))
+	}
+	_ = r
+	return nil
 }
 
 // ensureMultus checks whether the kube-multus DaemonSet already exists;

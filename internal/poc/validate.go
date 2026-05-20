@@ -62,6 +62,10 @@ func (p *PoC) Validate() ValidationResult {
 		r.Errors = append(r.Errors, "versions.cne_manifest: required")
 	}
 
+	// Networks is now optional — older PoCs pre-populated
+	// bnk-internal / bnk-external docker bridges but `cluster up`
+	// no longer creates them. If the user explicitly sets a name
+	// and subnet, still validate CIDR shape.
 	for _, n := range []struct {
 		label string
 		net   DockerNetwork
@@ -69,13 +73,13 @@ func (p *PoC) Validate() ValidationResult {
 		{"networks.internal", p.Networks.Internal},
 		{"networks.external", p.Networks.External},
 	} {
-		if n.net.Name == "" {
-			r.Errors = append(r.Errors, n.label+".name: required")
+		if n.net.Name == "" && n.net.Subnet == "" {
+			continue
 		}
-		if n.net.Subnet == "" {
-			r.Errors = append(r.Errors, n.label+".subnet: required")
-		} else if _, _, err := net.ParseCIDR(n.net.Subnet); err != nil {
-			r.Errors = append(r.Errors, fmt.Sprintf("%s.subnet %q: %v", n.label, n.net.Subnet, err))
+		if n.net.Subnet != "" {
+			if _, _, err := net.ParseCIDR(n.net.Subnet); err != nil {
+				r.Errors = append(r.Errors, fmt.Sprintf("%s.subnet %q: %v", n.label, n.net.Subnet, err))
+			}
 		}
 	}
 	if p.Networks.Internal.Name != "" && p.Networks.Internal.Name == p.Networks.External.Name {

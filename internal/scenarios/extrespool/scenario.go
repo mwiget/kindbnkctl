@@ -33,7 +33,6 @@ package extrespool
 import (
 	"bytes"
 	"embed"
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"strings"
@@ -136,16 +135,22 @@ func (s *scenario) Apply(ctx *scenarios.Context) error {
 		}
 	}
 
-	// 2. Wait for the backend pod, discover its NAD IP.
+	// 2. Wait for the backend pod, discover its Calico podIP. The
+	// Pool member references this IP — TMM reaches it via normal
+	// pod-to-pod Calico routing. No NAD attachment needed.
 	if err := r.Wait(ctx.Ctx, "scn-extres", "Available",
 		"deployment/ext-backend", 2*time.Minute); err != nil {
 		return fmt.Errorf("ext-backend Deployment not Available: %w", err)
 	}
-	backendIP, err := discoverNADIP(ctx, "scn-extres", "app=ext-backend", "bnk-bgp")
-	if err != nil {
-		return fmt.Errorf("discover ext-backend NAD IP: %w", err)
+	backendIP, err := r.KubectlCapture(ctx.Ctx, "-n", "scn-extres", "get", "pod",
+		"-l", "app=ext-backend",
+		"--field-selector=status.phase=Running",
+		"-o", "jsonpath={.items[0].status.podIP}")
+	backendIP = strings.TrimSpace(backendIP)
+	if err != nil || backendIP == "" {
+		return fmt.Errorf("discover ext-backend podIP: %w (got %q)", err, backendIP)
 	}
-	fmt.Fprintf(ctx.Out, "      | ext-backend NAD IP: %s\n", backendIP)
+	fmt.Fprintf(ctx.Out, "      | ext-backend podIP: %s\n", backendIP)
 
 	// 3. Render Pool template, persist + apply.
 	poolBody, err := renderTemplate(manifestFS, "manifests/05-pool.yaml.tmpl",
@@ -212,13 +217,14 @@ func (s *scenario) Verify(ctx *scenarios.Context) scenarios.Result {
 		Got:         strings.TrimSpace(out),
 	})
 
-	// Pool CR exists with at least one member.
+	// Pool CR exists with at least one member entry that has an
+	// address and the expected backend port.
 	memberCount, _ := r.KubectlCapture(ctx.Ctx, "-n", "scn-extres", "get",
 		"pool.k8s.f5net.com/ext-backend-pool",
 		"-o", "jsonpath={range .spec.members[*]}{.address}:{.port}{\"\\n\"}{end}")
 	res.Assertions = append(res.Assertions, scenarios.Assertion{
-		Description: "Pool CR has at least one member entry",
-		OK:          strings.Contains(memberCount, "192.168.99."),
+		Description: "Pool CR has at least one member entry on :80",
+		OK:          strings.Contains(memberCount, ":80"),
 		Got:         oneLine(memberCount, 200),
 	})
 
@@ -308,48 +314,6 @@ func (s *scenario) Cleanup(ctx *scenarios.Context) error {
 	_ = ctx.Runner.Kubectl(ctx.Ctx, "delete", "namespace", "scn-extres",
 		"--ignore-not-found")
 	return nil
-}
-
-// discoverNADIP returns the IPv4 address of the named NAD attachment
-// on a single pod selected by labelSelector in namespace.
-func discoverNADIP(ctx *scenarios.Context, namespace, labelSelector, nadName string) (string, error) {
-	r := ctx.Runner
-	podName, err := r.KubectlCapture(ctx.Ctx, "-n", namespace, "get", "pod",
-		"-l", labelSelector,
-		"--field-selector=status.phase=Running",
-		"-o", "jsonpath={.items[0].metadata.name}")
-	if err != nil || strings.TrimSpace(podName) == "" {
-		return "", fmt.Errorf("no Running pod for %s in %s: %w", labelSelector, namespace, err)
-	}
-	podName = strings.TrimSpace(podName)
-	netStatus, err := r.KubectlCapture(ctx.Ctx, "-n", namespace, "get", "pod",
-		podName,
-		"-o", `jsonpath={.metadata.annotations.k8s\.v1\.cni\.cncf\.io/network-status}`)
-	if err != nil {
-		return "", err
-	}
-	var entries []struct {
-		Name string   `json:"name"`
-		IPs  []string `json:"ips"`
-	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(netStatus)), &entries); err != nil {
-		return "", fmt.Errorf("parse network-status: %w (raw: %s)", err, oneLine(netStatus, 200))
-	}
-	for _, e := range entries {
-		// Multus surfaces the NAD as <ns>/<name>; match the suffix.
-		if !strings.HasSuffix(e.Name, "/"+nadName) && e.Name != nadName {
-			continue
-		}
-		for _, ip := range e.IPs {
-			if slash := strings.Index(ip, "/"); slash > 0 {
-				ip = ip[:slash]
-			}
-			if !strings.Contains(ip, ":") && ip != "" {
-				return ip, nil
-			}
-		}
-	}
-	return "", fmt.Errorf("NAD %s not found in network-status: %q", nadName, oneLine(netStatus, 300))
 }
 
 func renderTemplate(fsys embed.FS, path string, data any) (string, error) {
