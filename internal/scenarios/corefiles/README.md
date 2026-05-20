@@ -24,22 +24,76 @@ FLO responds by:
 
 ## Why amber
 
-The reconciled infrastructure is all asserted. What's **not**
-asserted (hence amber):
+The reconciled infrastructure is all asserted (CoreMond CR
+exists, DaemonSet has at least one desired replica, TMM
+Deployment template carries the core-dump volumes). But the
+data plane doesn't actually work end-to-end on our cluster.
+Investigated 2026-05-20; three compounding issues:
 
-- that a forced TMM crash actually deposits a core file at the
-  expected host path. F5's how-to suggests
-  `kubectl exec -n default <tmm-pod> -c f5-tmm -- kill -11 <tmm-pid>`
-  for this. We don't automate it because:
-  - crashing TMM mid-scenario leaves the cluster in a state
-    that confuses other scenarios + the runtime cluster's own
-    monitoring loops;
-  - the follow-up "did the file land in /var/crash" check needs
-    a privileged node-level read into the kind worker container,
-    which is out of scope for a self-contained scenario.
+### 1. The F5 doc has no real verify step
 
-Operators can run the kill manually after the scenario completes
-and inspect `/var/crash` on the kind worker.
+The how-to just says "`kill -11 $(pidof tmm)` to force a
+crash" with no automation and no "this is what you should
+see" assertion. Verifying "did a core file get captured"
+requires privileged node-level filesystem access into the
+kind worker container (the CoreMond DaemonSet bind-mounts
+`/home/crash/f5` from the host).
+
+### 2. CoreMond's DaemonSet pod can't stay scheduled
+
+The CoreMond pod creates and re-creates on a few-minute
+cycle without ever reaching Ready. The kube-scheduler log
+fingerprint is:
+
+```
+"Plugin failed" err="binding volumes: pod does not exist any
+  more: pod \"f5-coremond-XXX\" not found"
+plugin="VolumeBinding" pod="f5-cne-core/f5-coremond-XXX"
+node="smoke-worker"
+```
+
+The DaemonSet controller is recreating the pod before the
+scheduler's PreBind plugin finishes — a classic race. Root
+cause is the FLO null-`crashagentConfig` reconcile loop
+(documented in `scenario.go::Cleanup`): FLO keeps trying to
+update child CRs, gets rejected by the API server, retries,
+and as a side-effect repeatedly churns the CoreMond
+DaemonSet. The pod never has time to settle. Empirically the
+worker has plenty of CPU/memory/disk — it's purely a
+control-plane race.
+
+Symptom: `CNEInstance.status.conditions[CoremondAvailable]`
+stays `False` for the lifetime of the scenario.
+
+### 3. Forcing a crash needs the data plane to be live
+
+Even if we automated the `kill -11`, the verification
+("did the core land in `/home/crash/f5` on the worker")
+needs CoreMond to be Running so its hostPath is created and
+the in-cluster path is wired up. With CoreMond stuck
+Pending, the host path doesn't even exist on the worker
+(`ls /home/crash/f5: No such file or directory`).
+
+### What lifting to green would need
+
+- F5 to fix the null-`crashagentConfig` reconcile bug (so
+  the DaemonSet stops churning and CoreMond stays Ready),
+  OR
+- a kindbnkctl-side workaround that pins/manages the
+  CoreMond DaemonSet directly instead of relying on FLO's
+  template path, OR
+- a different verification angle that doesn't depend on
+  CoreMond running (e.g. just check `crashagentConfig` is
+  reflected onto the TMM container env — already covered by
+  the existing "TMM Deployment template includes a core-dump
+  volume" assertion).
+
+The reconciled-infrastructure assertions are the honest
+testable subset. Operators can still run the `kill -11`
+manually post-scenario; if CoreMond happens to be Running at
+that moment (which does occasionally happen between churn
+cycles), the core file does land in `/home/crash/f5` on the
+worker.
 
 ## Manifests
 
