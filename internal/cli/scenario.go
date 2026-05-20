@@ -16,6 +16,8 @@ import (
 	// Side-effect imports: each blank-imported package registers its
 	// scenario(s) with internal/scenarios at init time. Add new ones
 	// here as they land.
+	_ "github.com/mwiget/kindbnkctl/internal/scenarios/aisemcache"
+	_ "github.com/mwiget/kindbnkctl/internal/scenarios/aitokencount"
 	_ "github.com/mwiget/kindbnkctl/internal/scenarios/bgppeer"
 	_ "github.com/mwiget/kindbnkctl/internal/scenarios/corefiles"
 	_ "github.com/mwiget/kindbnkctl/internal/scenarios/cwcadminaccess"

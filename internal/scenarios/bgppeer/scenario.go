@@ -518,22 +518,45 @@ func ensureBridgeCNI(ctx *scenarios.Context) error {
 	return nil
 }
 
-// ensureMultus checks whether the kube-multus DaemonSet already exists;
-// if not, kubectl-applies the upstream thick-plugin manifest from
-// multusManifestURL and waits for the DaemonSet to be Ready.
+// ensureMultus installs the upstream Multus thick-plugin DaemonSet
+// (if missing) and patches its memory limit upward from the upstream
+// default of 50Mi to 500Mi (request 200Mi).
+//
+// The 50Mi default OOMKills under sustained CNI churn — repeated
+// scenario apply/clean cycles or scaling the cluster past a handful
+// of pods on the worker tips it over within minutes. On kind that
+// looks like CrashLoopBackOff or "failed to send CNI request:
+// Post 'http://dummy/cni': EOF" sandbox-create errors. 500Mi
+// comfortably holds through full scenario suites; the request stays
+// modest so it doesn't push the worker into scheduling pressure.
+//
+// Patching is idempotent — the JSON-patch is safe to apply against
+// either the upstream defaults or our already-bumped values.
 func ensureMultus(ctx *scenarios.Context) error {
 	r := ctx.Runner
 	out, _ := r.KubectlCapture(ctx.Ctx, "-n", "kube-system", "get",
 		"daemonset/kube-multus-ds",
 		"-o", "jsonpath={.status.numberReady}/{.status.desiredNumberScheduled}")
-	if strings.Contains(out, "/") && !strings.HasPrefix(strings.TrimSpace(out), "0/") {
-		fmt.Fprintln(ctx.Out, "      | Multus already installed — skipping")
-		return nil
+	alreadyInstalled := strings.Contains(out, "/") &&
+		!strings.HasPrefix(strings.TrimSpace(out), "0/")
+	if alreadyInstalled {
+		fmt.Fprintln(ctx.Out, "      | Multus already installed — skipping install")
+	} else {
+		fmt.Fprintln(ctx.Out, "      | installing Multus thick plugin ...")
+		if err := r.Kubectl(ctx.Ctx, "apply", "-f", multusManifestURL); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintln(ctx.Out, "      | installing Multus thick plugin ...")
-	if err := r.Kubectl(ctx.Ctx, "apply", "-f", multusManifestURL); err != nil {
-		return err
+
+	// Bump memory limits — upstream defaults OOMKill under CNI churn.
+	fmt.Fprintln(ctx.Out, "      | patching Multus memory limits 50Mi → 500Mi (request 200Mi)")
+	patch := `[{"op":"replace","path":"/spec/template/spec/containers/0/resources/limits/memory","value":"500Mi"},` +
+		`{"op":"replace","path":"/spec/template/spec/containers/0/resources/requests/memory","value":"200Mi"}]`
+	if err := r.Kubectl(ctx.Ctx, "-n", "kube-system", "patch",
+		"daemonset/kube-multus-ds", "--type=json", "-p", patch); err != nil {
+		fmt.Fprintf(ctx.Out, "      | WARN: memory-limit patch failed: %v (continuing — Multus may OOM under load)\n", err)
 	}
+
 	return r.Kubectl(ctx.Ctx, "-n", "kube-system", "rollout", "status",
 		"daemonset/kube-multus-ds", "--timeout=3m")
 }

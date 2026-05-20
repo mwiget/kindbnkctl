@@ -1,0 +1,109 @@
+# Two stub backends:
+#
+# 1. stub-llm — minimal nginx returning a fixed OpenAI-style JSON.
+#    Stands in for the LLM that the HTTPRoute forwards to on a
+#    cache miss.
+#
+# 2. stub-modelcache — TCP listener at a fixed ClusterIP. The F5
+#    semantic-cache annotation expects "semantic_cache_ip_port=
+#    <IP>:<port>"; we hand it the ClusterIP of this Service. A
+#    real CodeFuse-ModelCache speaks a protobuf protocol that the
+#    stub doesn't implement — TMM connecting to this IP will get
+#    a TCP accept then nothing useful, which is exactly the
+#    "cache miss" path. We can't validate cache HIT behaviour
+#    without the real ModelCache. Documented in README.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stub-llm-nginx
+  namespace: scn-semcache
+data:
+  default.conf: |
+    server {
+        listen 80;
+        default_type application/json;
+        location / {
+            return 200 '{"id":"chatcmpl-stub","object":"chat.completion","model":"llm-stub","choices":[{"message":{"role":"assistant","content":"kindbnkctl-scenario-semcache-OK"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}\n';
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stub-llm
+  namespace: scn-semcache
+  labels: {app: stub-llm}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: stub-llm}
+  template:
+    metadata:
+      labels: {app: stub-llm}
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.27-alpine
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - {name: conf, mountPath: /etc/nginx/conf.d}
+        readinessProbe:
+          httpGet: {path: /, port: 80}
+          initialDelaySeconds: 1
+          periodSeconds: 2
+        resources:
+          requests: {cpu: 10m, memory: 16Mi}
+          limits:   {cpu: 100m, memory: 64Mi}
+      volumes:
+      - name: conf
+        configMap: {name: stub-llm-nginx}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stub-llm
+  namespace: scn-semcache
+spec:
+  selector: {app: stub-llm}
+  ports:
+  - {name: http, port: 80, targetPort: 80}
+---
+# Stub ModelCache — accepts TCP connections, returns nothing. Just
+# needs to exist + listen so TMM has somewhere to dial.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stub-modelcache
+  namespace: scn-semcache
+  labels: {app: stub-modelcache}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: stub-modelcache}
+  template:
+    metadata:
+      labels: {app: stub-modelcache}
+    spec:
+      containers:
+      - name: socat
+        image: alpine/socat:1.8.0.0
+        args:
+        - "-d"
+        - "TCP-LISTEN:5050,fork,reuseaddr"
+        - "SYSTEM:'sleep 1; exit 0'"
+        ports:
+        - containerPort: 5050
+        resources:
+          requests: {cpu: 5m, memory: 8Mi}
+          limits:   {cpu: 50m, memory: 32Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stub-modelcache
+  namespace: scn-semcache
+spec:
+  selector: {app: stub-modelcache}
+  ports:
+  - {name: cache, port: 5050, targetPort: 5050, protocol: TCP}

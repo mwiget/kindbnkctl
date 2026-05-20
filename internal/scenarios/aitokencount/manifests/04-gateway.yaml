@@ -1,0 +1,39 @@
+# Gateway with the BNK token-counting annotation in
+# spec.infrastructure.annotations. The annotation key is
+# k8s.f5.com/ai-token-counting and the value is a multi-line
+# comma-separated list of feature=value pairs.
+#
+# The annotation is verbatim from the F5 how-to:
+#   token_counting=enabled,
+#   user_id_source=api_key,
+#   user_id_header=Authorization,
+#   fallback_to_ip=true,
+#   hsl_pool=hsl-logging-pool
+#
+# hsl_pool refers to a remote-syslog Pool that we don't deploy
+# (would require an HSL receiver; the annotation references it by
+# name but doesn't fail if absent — TMM just drops the events).
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: scn-tokencount-gateway
+  namespace: scn-tokencount
+spec:
+  gatewayClassName: bnk-gatewayclass
+  addresses:
+  - type: IPAddress
+    value: 203.0.113.103
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 8000
+    allowedRoutes:
+      namespaces: {from: Same}
+  infrastructure:
+    annotations:
+      k8s.f5.com/ai-token-counting: |
+        token_counting=enabled,
+        user_id_source=api_key,
+        user_id_header=Authorization,
+        fallback_to_ip=true,
+        hsl_pool=hsl-logging-pool

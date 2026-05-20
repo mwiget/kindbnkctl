@@ -1,0 +1,21 @@
+# HTTPRoute with metadata.annotation k8s.f5.com/sse-enabled=true
+# (per the F5 doc — paired with semantic caching because LLM
+# responses commonly stream via Server-Sent Events).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: scn-semcache-route
+  namespace: scn-semcache
+  annotations:
+    k8s.f5.com/sse-enabled: "true"
+spec:
+  parentRefs:
+  - name: scn-semcache-gateway
+  hostnames:
+  - semcache.kindbnkctl.local
+  rules:
+  - matches:
+    - path: {type: PathPrefix, value: /v1/chat/completions}
+    backendRefs:
+    - name: stub-llm
+      port: 80

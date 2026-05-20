@@ -1,0 +1,29 @@
+# Gateway with the semantic-cache annotation. The
+# semantic_cache_ip_port value is the ClusterIP of the
+# stub-modelcache Service; resolved at apply time and substituted
+# via text/template ({{.CacheIP}}). Verbatim annotation key per
+# the F5 doc: k8s.f5.com/ai (NOT k8s.f5.com/ai-semantic-cache —
+# this is a single annotation key whose VALUE is a CSV of
+# AI-related feature toggles).
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: scn-semcache-gateway
+  namespace: scn-semcache
+spec:
+  gatewayClassName: bnk-gatewayclass
+  addresses:
+  - type: IPAddress
+    value: 203.0.113.104
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 80
+    allowedRoutes:
+      namespaces: {from: Same}
+  infrastructure:
+    annotations:
+      k8s.f5.com/ai: |
+        semantic_cache=enabled,
+        semantic_cache_ip_port={{.CacheIP}}:5050,
+        semantic_cache_recv_timeout=1000
