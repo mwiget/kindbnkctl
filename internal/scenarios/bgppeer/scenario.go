@@ -52,67 +52,63 @@ func (s *scenario) Rating() scenarios.Rating { return scenarios.Amber }
 func (s *scenario) Dependencies() []string   { return nil }
 func (s *scenario) Description() string {
 	return strings.TrimSpace(`
-Deploys an FRR-based BGP peer in a dedicated namespace and
-configures TMM's ZeBOS daemon to peer with it via the existing
-f5-tmm-dynamic-routing-template ConfigMap. Exercises the full
-BNK dynamic-routing reconciliation chain on kind.
+Deploys an FRR BGP peer in a dedicated namespace and configures
+TMM's ZeBOS daemon to peer with it via the cluster-wide
+f5-tmm-dynamic-routing-template ConfigMap. Includes the
+auxiliary plumbing that makes ZeBOS actually pick up the config
+on a kind / demoMode TMM:
 
-Rated AMBER pending investigation of three documented gaps that
-together block BGP Established on the kind / demoMode shape:
+  - passwd.conf injection — bfd_watcher requires
+    /config/zebos/rd0/passwd.conf to exist before it will
+    imish-load ZebOS.conf. Without it, bgpd stays config-empty.
+    Apply step writes a one-line passwd.conf into the f5-tmm-
+    routing container's writable /config/zebos/rd0/ via
+    kubectl-exec, with a retry loop because the container can
+    be briefly unexecable right after a TMM rollout.
+  - route-injector DaemonSet — installs Calico's standard
+    'fake-gateway' kernel routes (169.254.1.1/32 dev eth0 +
+    <frr-pod-ip>/32 via 169.254.1.1) into the TMM pod's netns
+    via nsenter. Without these, the pod has 'default via dev
+    tmm' and no path to FRR. The DaemonSet runs hostPID +
+    privileged on every node and re-applies on TMM restart
+    (PID-change detection in /proc/*/comm).
 
-  1. f5-tmm-dynamic-routing ConfigMap ships with empty vlanName
-     and empty clusterNodeIPs. bfd_watcher's imish load fails
-     repeatedly with 'vlan name not found' until those fields
-     are populated. In a normal BNK deployment those values
-     come from F5SPKVlan reconciliation (DPU/SR-IOV path); on
-     kind there is no equivalent reconciler. Manual patching to
-     {vlanName: "eth0", clusterNodeIPs: [<tmm-pod-IP>]} stops
-     the errors but isn't durable across TMM restarts.
+Rated AMBER because despite these fixes BGP still does not
+reach Established on kind. The remaining gap is architectural,
+not a missing config field: TMM in demoMode intercepts TCP
+traffic on eth0 and routes it through its own data plane
+before reaching the local bgpd listener. ICMP works (FRR
+pings TMM at ~2ms RTT), but TCP SYNs to port 179 are absorbed
+by TMM's proxy logic; nothing reaches the 0.0.0.0:179 listener
+that ZeBOS bgpd is bound to. In a production BNK deployment
+the BGP traffic flows over a Multus NAD interface that bypasses
+this hook — kind/demoMode has no equivalent.
 
-  2. /config/zebos/rd0/passwd.conf does not exist; bfd_watcher
-     logs 'failed to open file ... No such file or directory'
-     and 'imish load command failed'. ZeBOS keeps running with
-     an empty config — explains why the neighbor never makes
-     a TCP connection attempt despite showing in 'show ip bgp
-     summary' (which reads from the ConfigMap mount, not from
-     the live bgpd state).
+What IS verified by this scenario:
 
-  3. The TMM pod's kernel routing table has 'default via dev tmm'
-     and no specific route for the Calico /26 — so even when
-     bgpd does send a SYN, it goes to the tmm virtio interface
-     instead of out via Calico eth0. Workaround: nsenter into
-     the pod netns and add 'ip route 169.254.1.1 dev eth0' +
-     'ip route <frr-ip> via 169.254.1.1 dev eth0' (Calico's
-     fake-gateway pattern). When this route is added, FRR does
-     see incoming BGP from TMM (visible in FRR logs as 'sent
-     to neighbor X 1/1 (Message Header Error/Connection Not
-     Synchronized)'), confirming the network path works once
-     primed but the BGP protocol handshake then fails.
+  - FRR pod Ready, bgpd loaded with peer-group from-tmm +
+    listen-range 10.244.0.0/16
+  - route-injector DaemonSet pods Running (mechanism that
+    primes the TMM pod's kernel routing table)
+  - passwd.conf present in the TMM pod's
+    /config/zebos/rd0/ (gate for bfd_watcher imish-load)
+  - ZeBOS in TMM sees the configured neighbor (the ConfigMap
+    reached the pod and was parsed)
 
-What IS verified by this scenario today (control-plane side):
-
-  - FRR pod Ready, bgpd running, listen-range configured with
-    peer-group 'from-tmm' visible in 'vtysh show bgp peer-group'
-  - The rendered ZeBOS.conf is applied to the cluster-wide
-    f5-tmm-dynamic-routing-template ConfigMap (file at
-    artifacts/scenarios/<name>/04-zebos.rendered.yaml)
-  - TMM pod is restarted to reload the ConfigMap
-  - ZeBOS surfaces the configured neighbor (Active state) in
-    its show output
-
-To lift this to green, a follow-up scenario needs to: populate
-vlanName + clusterNodeIPs in f5-tmm-dynamic-routing, create
-passwd.conf via an emptyDir mount or sidecar, and inject the
-fake-gateway routes into the TMM pod's netns (privileged
-nsenter Job or a custom CNI hook).
+To lift this to green, a follow-up scenario needs to bypass
+TMM's eth0 TCP hook. Likely paths: add a Multus NAD interface
+that ZeBOS can bind to (recreates the production shape), or
+patch TMM's iptables-style filter to exempt port 179.
 
 Caveats:
   - The ConfigMap rewrite affects the whole CNEInstance —
     running this scenario reconfigures cluster-wide TMM dynamic
-    routing until you run 'scenario clean bgp-peer-frr' (restores
-    the template to empty).
-  - The FRR pod's BGP listener accepts any peer in 10.244.0.0/16;
-    appropriate for single-tenant kind clusters only.
+    routing until you run 'scenario clean bgp-peer-frr'.
+  - The FRR pod's listener accepts any peer in 10.244.0.0/16;
+    single-tenant kind clusters only.
+  - The route-injector runs privileged with hostPID; it nsenter's
+    into the TMM container's netns. Acceptable for a dev/test
+    cluster; do not run on production.
 `)
 }
 
@@ -168,42 +164,39 @@ func (s *scenario) Apply(ctx *scenarios.Context) error {
 	}
 	frrIP = strings.TrimSpace(frrIP)
 
-	// Discover the local Calico /26 block containing FRR so we can
-	// install a single subnet-wide route in ZeBOS instead of a
-	// host-specific one (more resilient if FRR is recreated and gets
-	// a sibling IP in the same block).
-	calicoSubnet := calicoBlockFor(frrIP)
-
-	// 3. Render the ZeBOS template with the discovered FRR IP and
-	//    write the rendered file alongside the other manifests so
-	//    the operator can grep what was applied.
-	tmplBody, err := manifestFS.ReadFile("manifests/04-zebos-template.yaml.tmpl")
+	// 3. Render + apply the ZeBOS ConfigMap (default ns) with the
+	//    discovered FRR IP. Persist the rendered file for audit.
+	zebosBody, err := renderTemplate(manifestFS, "manifests/04-zebos-template.yaml.tmpl",
+		struct{ FRRPodIP string }{FRRPodIP: frrIP})
 	if err != nil {
-		return err
-	}
-	t, err := template.New("zebos").Parse(string(tmplBody))
-	if err != nil {
-		return err
-	}
-	var rendered bytes.Buffer
-	if err := t.Execute(&rendered, struct{ FRRPodIP, CalicoSubnet string }{
-		FRRPodIP:     frrIP,
-		CalicoSubnet: calicoSubnet,
-	}); err != nil {
 		return err
 	}
 	if _, err := scenarios.WriteManifest(ctx.PoCDir, scnName,
-		"04-zebos.rendered.yaml", rendered.String()); err != nil {
+		"04-zebos.rendered.yaml", zebosBody); err != nil {
 		return err
 	}
-
-	// 4. Apply the ZeBOS ConfigMap and restart TMM so it re-reads.
-	//    TMM doesn't auto-reload the config — FLO programs it at
-	//    pod startup. Easiest path: delete the TMM pod and let the
-	//    Deployment respin it.
-	if err := r.Apply(ctx.Ctx, rendered.String()); err != nil {
+	if err := r.Apply(ctx.Ctx, zebosBody); err != nil {
 		return fmt.Errorf("apply ZeBOS ConfigMap: %w", err)
 	}
+
+	// 4. Render + apply the route-injector DaemonSet — same FRR IP
+	//    spliced in so it installs the right /32 route on each TMM
+	//    pod the kubelet schedules. Idempotent across TMM restarts.
+	injectorBody, err := renderTemplate(manifestFS, "manifests/05-route-injector.yaml.tmpl",
+		struct{ FRRPodIP string }{FRRPodIP: frrIP})
+	if err != nil {
+		return err
+	}
+	if _, err := scenarios.WriteManifest(ctx.PoCDir, scnName,
+		"05-route-injector.rendered.yaml", injectorBody); err != nil {
+		return err
+	}
+	if err := r.Apply(ctx.Ctx, injectorBody); err != nil {
+		return fmt.Errorf("apply route-injector DaemonSet: %w", err)
+	}
+
+	// 5. Restart TMM so it picks up the new ZeBOS ConfigMap and so
+	//    the injector sees a fresh TMM PID to install routes into.
 	if err := r.Kubectl(ctx.Ctx, "-n", "default", "rollout", "restart",
 		"deployment/f5-tmm"); err != nil {
 		return fmt.Errorf("rollout restart f5-tmm: %w", err)
@@ -212,7 +205,67 @@ func (s *scenario) Apply(ctx *scenarios.Context) error {
 		"deployment/f5-tmm", "--timeout=5m"); err != nil {
 		return fmt.Errorf("f5-tmm rollout did not complete: %w", err)
 	}
+
+	// 6. Create the passwd.conf that ZeBOS's bfd_watcher requires
+	//    before it can imish-load the ZebOS.conf. The
+	//    /config/zebos/rd0/ directory is a writable emptyDir mount
+	//    inside the f5-tmm-routing container, so we can drop in an
+	//    empty passwd.conf via kubectl-exec after the TMM pod is up.
+	//    Without this file, bfd_watcher logs "failed to open
+	//    /config/zebos/rd0/passwd.conf" continuously and bgpd runs
+	//    with no config in memory.
+	// Retry the exec for up to 90s, re-fetching the pod name each
+	// loop iteration so we don't get stuck on a terminating pod
+	// that was named just before TMM's successor came up. The
+	// f5-tmm-routing container also takes a few extra seconds to
+	// be exec-able after the main container is Ready — the retry
+	// covers both cases.
+	var injectErr error
+	for i := 0; i < 18; i++ {
+		tmmPod, err := r.KubectlCapture(ctx.Ctx, "-n", "default", "get", "pod",
+			"-l", "app=f5-tmm",
+			"--field-selector=status.phase=Running",
+			"-o", "jsonpath={.items[0].metadata.name}")
+		tmmPod = strings.TrimSpace(tmmPod)
+		if err != nil || tmmPod == "" {
+			injectErr = fmt.Errorf("no Running f5-tmm pod yet: %w", err)
+		} else {
+			injectErr = r.Kubectl(ctx.Ctx, "-n", "default", "exec",
+				tmmPod, "-c", "f5-tmm-routing", "--",
+				"sh", "-c", "echo 'enable password 0 zebos' > /config/zebos/rd0/passwd.conf")
+			if injectErr == nil {
+				break
+			}
+		}
+		select {
+		case <-ctx.Ctx.Done():
+			return ctx.Ctx.Err()
+		case <-time.After(5 * time.Second):
+		}
+	}
+	if injectErr != nil {
+		return fmt.Errorf("inject passwd.conf into TMM (after retries): %w", injectErr)
+	}
+
 	return nil
+}
+
+// renderTemplate is a small wrapper around text/template that reads
+// from the embedded FS and returns the substituted string.
+func renderTemplate(fsys embed.FS, path string, data any) (string, error) {
+	raw, err := fsys.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	t, err := template.New(path).Parse(string(raw))
+	if err != nil {
+		return "", err
+	}
+	var b bytes.Buffer
+	if err := t.Execute(&b, data); err != nil {
+		return "", err
+	}
+	return b.String(), nil
 }
 
 func (s *scenario) Verify(ctx *scenarios.Context) scenarios.Result {
@@ -231,16 +284,38 @@ func (s *scenario) Verify(ctx *scenarios.Context) scenarios.Result {
 	}
 	frrPod = strings.TrimSpace(frrPod)
 
-	// FRR bgpd up + listen-range applied. The vtysh exec is the
-	// proof that the BGP daemon parsed our config (errors would
-	// have surfaced as "% No BGP neighbors found in VRF default"
-	// or similar).
+	// FRR bgpd up + peer-group/listen-range applied.
 	frrConfig, err := r.KubectlCapture(ctx.Ctx, "-n", "scn-bgp", "exec",
-		frrPod, "--", "vtysh", "-c", "show bgp peer-group")
+		frrPod, "-c", "frr", "--", "vtysh", "-c", "show bgp peer-group")
 	res.Assertions = append(res.Assertions, scenarios.Assertion{
 		Description: "FRR bgpd loaded peer-group from-tmm with listen-range",
 		OK:          err == nil && strings.Contains(frrConfig, "from-tmm") && strings.Contains(frrConfig, "listen range"),
 		Got:         oneLine(frrConfig, 200),
+	})
+
+	// Route-injector DaemonSet alive — it's the mechanism that made
+	// the kernel route for the BGP path land. Validate at least one
+	// of the 2 replicas is Running.
+	injStatus, _ := r.KubectlCapture(ctx.Ctx, "-n", "scn-bgp", "get", "pod",
+		"-l", "app=scn-tmm-route-injector",
+		"-o", "jsonpath={.items[*].status.phase}")
+	injOK := strings.Contains(injStatus, "Running")
+	res.Assertions = append(res.Assertions, scenarios.Assertion{
+		Description: "route-injector DaemonSet pods Running",
+		OK:          injOK,
+		Got:         oneLine(injStatus, 100),
+	})
+
+	// passwd.conf successfully landed in TMM (bfd_watcher no longer
+	// logs "No such file or directory" — check the file directly).
+	passwd, _ := r.KubectlCapture(ctx.Ctx, "-n", "default", "exec",
+		"deploy/f5-tmm", "-c", "f5-tmm-routing", "--",
+		"ls", "/config/zebos/rd0/passwd.conf")
+	passwdOK := strings.Contains(passwd, "passwd.conf")
+	res.Assertions = append(res.Assertions, scenarios.Assertion{
+		Description: "ZeBOS passwd.conf present (bfd_watcher imish-load gate)",
+		OK:          passwdOK,
+		Got:         oneLine(passwd, 100),
 	})
 
 	// ZeBOS in the TMM pod tracks the configured neighbor. The
@@ -350,13 +425,14 @@ data:
   ZebOS.conf: ""
 `
 	_ = r.Apply(ctx.Ctx, emptyCM)
+	// Drop the scenario namespace — also deletes the route-injector
+	// DaemonSet and FRR Deployment in one shot.
+	_ = r.Kubectl(ctx.Ctx, "delete", "namespace", "scn-bgp", "--ignore-not-found")
 	// Restart TMM so it picks up the empty config (rollout restart
 	// is idempotent; failure to restart isn't fatal — the next
 	// scenario run will overwrite anyway).
 	_ = r.Kubectl(ctx.Ctx, "-n", "default", "rollout", "restart",
 		"deployment/f5-tmm")
-	// Drop the scenario namespace.
-	_ = r.Kubectl(ctx.Ctx, "delete", "namespace", "scn-bgp", "--ignore-not-found")
 	return nil
 }
 
@@ -369,25 +445,6 @@ func oneLine(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
-}
-
-// calicoBlockFor returns the /26 block-CIDR containing ip. Calico's
-// default IPAM hands out /26 blocks; the route ZeBOS needs is a
-// subnet-wide entry rather than a host-specific one so it survives
-// FRR pod recreation onto a sibling IP. Fallback to /32 if the input
-// isn't a valid v4 address.
-func calicoBlockFor(ip string) string {
-	parts := strings.Split(ip, ".")
-	if len(parts) != 4 {
-		return ip + "/32"
-	}
-	// last octet aligned to a /26 boundary (0, 64, 128, 192)
-	var last int
-	if _, err := fmt.Sscanf(parts[3], "%d", &last); err != nil {
-		return ip + "/32"
-	}
-	block := (last / 64) * 64
-	return fmt.Sprintf("%s.%s.%s.%d/26", parts[0], parts[1], parts[2], block)
 }
 
 // Silence unused-import warnings when this package compiles before

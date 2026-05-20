@@ -218,16 +218,29 @@ Scoring of the [F5 BNK how-tos index](https://clouddocs.f5.com/bigip-next-for-ku
 | 12 | TMOS DNS Service Integration with CIS | 🟡 amber | not yet implemented |
 
 Both implemented scenarios verify control-plane reconciliation
-(deploys, ConfigMaps, CRs, conditions) fully; their data-plane
-end states are recorded as `[bonus]` assertions in the report
-and don't fail the scenario. The bonus assertions all hinge on
-the same gap: making BGP between TMM's ZeBOS and the FRR peer
-reach Established on the kind / demoMode shape. The
-`bgp-peer-frr` scenario description enumerates the three pieces
-needed (populate `f5-tmm-dynamic-routing.vlanName`, provide
-`passwd.conf`, inject fake-gateway routes into the TMM pod's
-netns) — a follow-up scenario that addresses those lifts both
-this and `http-routing-e2e` to green automatically.
+fully; their data-plane end states are `[bonus]` assertions in
+the report and don't fail the scenario.
+
+`bgp-peer-frr` does substantial real BGP plumbing — not just CR
+applies. It deploys FRR as a BGP peer, configures TMM's ZeBOS
+daemon through the `f5-tmm-dynamic-routing-template` ConfigMap,
+writes the required `/config/zebos/rd0/passwd.conf` into the
+TMM pod via `kubectl exec`, and ships a privileged DaemonSet
+that re-injects Calico's standard fake-gateway kernel routes
+(`169.254.1.1` + FRR pod IP) into the TMM pod's netns on every
+restart. After all of that, ZeBOS bgpd is configured, listening,
+and trying to peer.
+
+What still blocks `[bonus] BGP Established` is architectural,
+not a missing knob: TMM in demoMode intercepts TCP on eth0 and
+routes it through its own data plane before it reaches the
+0.0.0.0:179 listener that ZeBOS bgpd is bound to. ICMP works
+(`ping` succeeds), `curl http://<tmm>:179` times out. In
+production BNK the BGP traffic flows over a Multus NAD interface
+that bypasses this hook — kind/demoMode has no equivalent. A
+follow-up scenario adding a Multus NAD (or patching TMM's
+iptables filter to exempt port 179) would lift both scenarios
+to green.
 
 ## Testing
 

@@ -15,13 +15,13 @@ metadata:
 data:
   ZebOS.conf: |
     !
-    ! Static route so ZeBOS uses eth0 (Calico) to reach the FRR pod
-    ! rather than the default route via the tmm virtio interface. On
-    ! kind without Multus, TMM's default route is `dev tmm` and the
-    ! Calico /26 subnet has no specific entry — without this route
-    ! ZeBOS's BGP TCP SYNs get sent into the TMM data plane where
-    ! nothing answers.
-    ip route {{.CalicoSubnet}} eth0
+    ! NOTE: F5 ZeBOS rejects 'ip route X/N <iface>' syntax with
+    ! "ECMP route cannot be created with nexthop as IFNAME"; static
+    ! routes must use a next-hop IP. The Calico-subnet route we
+    ! need (to push BGP traffic via eth0 rather than the default
+    ! tmm virtio) is therefore injected into the TMM pod's kernel
+    ! netns by the scenario's separate route-injector Job —
+    ! see manifests/05-route-injector.yaml.
     !
     router bgp 65000
       bgp router-id %%POD_IP%%

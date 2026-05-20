@@ -1,0 +1,97 @@
+# DaemonSet that watches for the f5-tmm pod on the same node and
+# injects two routes into its netns via nsenter:
+#   ip route 169.254.1.1/32 dev eth0 scope link
+#   ip route <frr-pod-ip>/32 via 169.254.1.1 dev eth0
+#
+# These mimic Calico's standard "fake gateway via proxy-ARP" pattern,
+# which the TMM pod is missing because demoMode replaces eth0's
+# default route with a route via the tmm virtio. Without them, ZeBOS's
+# BGP TCP SYNs are sent into the tmm virtio data plane instead of out
+# via Calico eth0, and the BGP session never reaches Established.
+#
+# The DaemonSet pod runs hostPID + privileged so it can read crictl
+# state to locate the TMM container PID and nsenter into its netns.
+# A reconcile loop watches the TMM PID every few seconds, so a TMM
+# restart (e.g. when the operator re-runs the scenario) gets fresh
+# routes installed without manual intervention.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: scn-tmm-route-injector
+  namespace: scn-bgp
+  labels: {app: scn-tmm-route-injector}
+spec:
+  selector:
+    matchLabels: {app: scn-tmm-route-injector}
+  template:
+    metadata:
+      labels: {app: scn-tmm-route-injector}
+    spec:
+      hostPID: true
+      hostNetwork: true
+      tolerations:
+      - operator: Exists
+      containers:
+      - name: injector
+        image: alpine:3.20
+        securityContext:
+          privileged: true
+        command:
+        - sh
+        - -c
+        - |
+          set -u
+          echo "route-injector starting. FRR_IP={{.FRRPodIP}}"
+          # Use the host's nsenter to enter the TMM container's netns.
+          # crictl is preinstalled on the kind node image at /usr/local/bin
+          # — bind-mount the host's crictl + containerd socket if needed.
+          # Simpler approach: parse /proc/*/comm for the tmm process and
+          # use its PID directly. The tmm binary runs as PID 1 inside the
+          # TMM container; its host-visible PID is one we can find from
+          # the host PID namespace via /proc/<pid>/cgroup.
+          install_routes() {
+            local tmm_pid=$1
+            # Idempotent: ignore "File exists" errors on re-runs.
+            nsenter -t "$tmm_pid" -n ip route replace 169.254.1.1/32 dev eth0 scope link 2>&1
+            nsenter -t "$tmm_pid" -n ip route replace {{.FRRPodIP}}/32 via 169.254.1.1 dev eth0 2>&1
+            echo "$(date -Is) routes installed for TMM PID $tmm_pid:"
+            nsenter -t "$tmm_pid" -n ip route show 10.244.0.0/16 | head -5 || true
+            nsenter -t "$tmm_pid" -n ip route show 169.254.1.1 | head -2 || true
+          }
+          # Track last-known PID so we re-install on restart.
+          last=""
+          while true; do
+            # Find a host-PID inside the TMM container's netns. The
+            # main TMM process appears in /proc as "tmm.0" (worker 0);
+            # match the "tmm." prefix to avoid the bash-script aliases
+            # like "coretmm_reader." while excluding the unrelated
+            # "tmm_pod_manager" that lives in the cne-controller pod.
+            tmm_pid=$(for c in /proc/[0-9]*/comm; do
+              [ -r "$c" ] || continue
+              read name < "$c" 2>/dev/null || continue
+              case "$name" in
+                tmm.*) ;;
+                *) continue ;;
+              esac
+              pid=$(echo "$c" | awk -F/ "{print \$3}")
+              # Verify the netns has eth0 with a Calico-range IP — that
+              # rules out any stray "tmm.*" process that isn't in our
+              # TMM pod's netns. BusyBox `ip` doesn't support `-br`,
+              # so we grep the full `addr show` output for an inet
+              # line in the 10.244.x range.
+              if nsenter -t "$pid" -n ip -4 addr show eth0 2>/dev/null \
+                   | grep -q "inet 10\.244\."; then
+                echo "$pid"
+                break
+              fi
+            done | head -1)
+            if [ -n "$tmm_pid" ] && [ "$tmm_pid" != "$last" ]; then
+              echo "$(date -Is) TMM PID $tmm_pid detected (was: $last) — installing routes"
+              install_routes "$tmm_pid"
+              last="$tmm_pid"
+            fi
+            sleep 5
+          done
+        resources:
+          requests: {cpu: 10m, memory: 16Mi}
+          limits:   {cpu: 100m, memory: 64Mi}
