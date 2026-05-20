@@ -307,7 +307,7 @@ Scoring of the [F5 BNK how-tos index](https://clouddocs.f5.com/bigip-next-for-ku
 | # | How-to | Rating | Scenario | Wall time |
 |---|---|---|---|---|
 | 1 | [Restrict access to sensitive data](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-admin-access-api.html) | 🟢 | [`cwc-admin-access`](internal/scenarios/cwcadminaccess) | 14s |
-| 2 | [Components needing cluster-wide access](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-whole-cluster.html) | — | not yet implemented | — |
+| 2 | [Components needing cluster-wide access](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-whole-cluster.html) | 🟢 | [`cluster-wide-watch`](internal/scenarios/clusterwidewatch) | 6s |
 | 3 | [Set up dynamic routing with BGP](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-zebos-config.html) | 🟢 | [`bgp-peer-frr`](internal/scenarios/bgppeer) | 3m04s |
 | 4 | [Set up core file collection](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-coremond.html) | 🟡 | [`core-file-collection`](internal/scenarios/corefiles) | 3m01s |
 | 6 | [Configure Token Counting and Enforcement](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/configure-token-counting-and-enforcement.html) | 🟡 | [`ai-token-counting`](internal/scenarios/aitokencount) | 6s |

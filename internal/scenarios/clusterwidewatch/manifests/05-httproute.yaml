@@ -1,0 +1,16 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: scn-cwatch-route
+  namespace: scn-cwatch
+spec:
+  parentRefs:
+  - name: scn-cwatch-gateway
+  hostnames:
+  - cwatch.kindbnkctl.local
+  rules:
+  - matches:
+    - path: {type: PathPrefix, value: /}
+    backendRefs:
+    - name: nginx
+      port: 80

@@ -19,6 +19,7 @@ import (
 	_ "github.com/mwiget/kindbnkctl/internal/scenarios/aisemcache"
 	_ "github.com/mwiget/kindbnkctl/internal/scenarios/aitokencount"
 	_ "github.com/mwiget/kindbnkctl/internal/scenarios/bgppeer"
+	_ "github.com/mwiget/kindbnkctl/internal/scenarios/clusterwidewatch"
 	_ "github.com/mwiget/kindbnkctl/internal/scenarios/corefiles"
 	_ "github.com/mwiget/kindbnkctl/internal/scenarios/cwcadminaccess"
 	_ "github.com/mwiget/kindbnkctl/internal/scenarios/extrespool"
