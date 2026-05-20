@@ -20,6 +20,19 @@ kind: NetworkAttachmentDefinition
 metadata:
   name: bnk-bgp
   namespace: default
+  annotations:
+    # FLO's TMM-pod-template propagation looks up this annotation
+    # to learn which extended resource the NAD consumes (the
+    # SR-IOV convention from production BNK). For a bridge-CNI
+    # NAD there's no hardware behind it, so this is a stand-in
+    # label. Without it FLO logs every reconcile as "Could not
+    # find resource name under k8s.v1.cni.cncf.io/resourceName
+    # annotation, skipping". Verified empirically (2026-05-20)
+    # that FLO does NOT inject a matching resource request on
+    # the TMM container even with the annotation present — so
+    # we don't need to advertise the resource at the node level.
+    # The annotation silences the log noise and documents intent.
+    k8s.v1.cni.cncf.io/resourceName: bridge.cni.io/bnk-bgp
 spec:
   config: |
     {
@@ -42,6 +55,10 @@ kind: NetworkAttachmentDefinition
 metadata:
   name: bnk-bgp
   namespace: scn-bgp
+  annotations:
+    # Same SR-IOV-convention stand-in as the default-namespace copy
+    # above — see the long comment there for why.
+    k8s.v1.cni.cncf.io/resourceName: bridge.cni.io/bnk-bgp
 spec:
   config: |
     {
