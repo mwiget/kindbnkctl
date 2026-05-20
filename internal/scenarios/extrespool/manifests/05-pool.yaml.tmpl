@@ -1,0 +1,16 @@
+# BNK Pool CR — the centerpiece of how-to #10. Lists external
+# endpoints by IP+port and (optionally) a monitor. HTTPRoute
+# backendRefs point at this Pool with group=k8s.f5net.com,
+# kind=Pool, instead of pointing at a normal Service.
+#
+# {{.BackendIP}} is filled at scenario-apply time from the
+# ext-backend pod's NAD-allocated address.
+apiVersion: k8s.f5net.com/v1
+kind: Pool
+metadata:
+  name: ext-backend-pool
+  namespace: scn-extres
+spec:
+  members:
+  - address: {{.BackendIP}}
+    port: 80

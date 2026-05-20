@@ -1,0 +1,16 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: scn-extres-gateway
+  namespace: scn-extres
+spec:
+  gatewayClassName: bnk-gatewayclass
+  addresses:
+  - type: IPAddress
+    value: 203.0.113.101
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 80
+    allowedRoutes:
+      namespaces: {from: Same}

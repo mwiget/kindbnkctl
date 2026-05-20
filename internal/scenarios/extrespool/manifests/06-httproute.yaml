@@ -1,0 +1,22 @@
+# HTTPRoute with backendRefs pointing at a BNK Pool — the key
+# differentiator from http-routing-e2e where backendRefs went to a
+# regular Service. The Pool CR (rendered separately) names the
+# external endpoint.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: scn-extres-route
+  namespace: scn-extres
+spec:
+  parentRefs:
+  - name: scn-extres-gateway
+  hostnames:
+  - extres.kindbnkctl.local
+  rules:
+  - matches:
+    - path: {type: PathPrefix, value: /}
+    backendRefs:
+    - group: k8s.f5net.com
+      kind: Pool
+      name: ext-backend-pool
+      port: 80

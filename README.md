@@ -204,18 +204,27 @@ Scoring of the [F5 BNK how-tos index](https://clouddocs.f5.com/bigip-next-for-ku
 
 | # | How-to | Rating | Status |
 |---|---|---|---|
-| 1 | Restrict access to sensitive data | 🟢 green | not yet implemented |
-| 2 | Components needing cluster-wide access | 🟢 green | not yet implemented |
+| 1 | Restrict access to sensitive data | — | not yet implemented |
+| 2 | Components needing cluster-wide access | — | not yet implemented |
 | **3** | **Set up dynamic routing with BGP** | **🟢 green** | **implemented (`bgp-peer-frr`)** |
-| 4 | Set up core file collection | 🟡 amber | not yet implemented |
+| 4 | Set up core file collection | — | not yet implemented |
 | 5 | Configure DOCA Offloads on DPU | 🔴 red | needs DPU |
-| 6 | Configure Token Counting and Enforcement | 🟢 green | not yet implemented |
-| 7 | Configure AI Traffic Optimization Features | 🟡 amber | not yet implemented |
+| 6 | Configure Token Counting and Enforcement | — | not yet implemented |
+| 7 | Configure AI Traffic Optimization Features | — | not yet implemented |
 | **8** | **HTTP traffic steering with Gateway API HTTPRoute** | **🟢 green** | **implemented (`http-routing-e2e`)** |
-| 9 | Proxy Protocol iRule support for L4 routes | 🟡 amber | not yet implemented |
-| 10 | Load Balance Traffic to External Resources | 🟢 green | not yet implemented |
+| 9 | Proxy Protocol iRule support for L4 routes | — | not yet implemented |
+| **10** | **Load Balance Traffic to External Resources** | **🟢 green** | **implemented (`external-resource-pool`)** |
 | 11 | Static Active-Standby Interface Bonding | 🔴 red | needs real NICs |
-| 12 | TMOS DNS Service Integration with CIS | 🟡 amber | not yet implemented |
+| 12 | TMOS DNS Service Integration with CIS | — | not yet implemented |
+
+Ratings are assigned only after a scenario is built and run —
+we learned the hard way that pre-scoring (the original
+optimistic green/amber/red split) was unreliable. Implemented
+scenarios that pan out land as 🟢 green; ones that hit a real
+architectural barrier on kind+demoMode get 🟡 amber with the
+gap documented in the scenario's `Description()`.
+Confirmed-impossible-on-kind stays 🔴 red (needing DPU silicon
+or physical NICs).
 
 `bgp-peer-frr` (green) deploys a real BGP session between an FRR
 pod and TMM's ZeBOS daemon, peered over a Multus
@@ -258,11 +267,16 @@ non-cluster-dependent surface area in one shot.
 
 ## Design references
 
-- **dpubnkctl** — the bare-metal + DPU sister tool. kindbnkctl is a
-  copy-fork: `internal/poc`, `internal/cluster`, `internal/cli` are
-  rewritten for the kind path; `internal/bnkforge`, `internal/deploy`
-  are forked verbatim with minor adjustments (local kubectl/helm
+- **[dpubnkctl](https://github.com/mwiget/dpubnkctl)** — the
+  bare-metal + DPU sister tool. kindbnkctl is a copy-fork:
+  `internal/poc`, `internal/cluster`, `internal/cli` are rewritten
+  for the kind path; `internal/bnkforge`, `internal/deploy` are
+  forked verbatim with minor adjustments (local kubectl/helm
   instead of containerized).
-- **f5-bnk-udf** — the inspiration for the BNK-on-host shape:
-  `advanced.demoMode.enabled: true` + node label + nodeSelector. Same
-  CNEInstance recipe, minus Multus / SR-IOV / dynamicRouting.
+- **[f5-bnk-udf](https://github.com/f5devcentral/f5-bnk-udf/tree/v2.2.0)**
+  (branch `v2.2.0`) — the inspiration for the BNK-on-host shape:
+  `advanced.demoMode.enabled: true` + node label + nodeSelector,
+  ZeBOS dynamic-routing ConfigMap pattern, multi-worker
+  topology. Same CNEInstance recipe family; kindbnkctl adapts it
+  to a two-node kind cluster with Multus NADs replacing the
+  macvlan-on-bare-metal approach used in f5-bnk-udf.

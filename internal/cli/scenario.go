@@ -17,6 +17,7 @@ import (
 	// scenario(s) with internal/scenarios at init time. Add new ones
 	// here as they land.
 	_ "github.com/mwiget/kindbnkctl/internal/scenarios/bgppeer"
+	_ "github.com/mwiget/kindbnkctl/internal/scenarios/extrespool"
 	_ "github.com/mwiget/kindbnkctl/internal/scenarios/httproutee2e"
 )
 
