@@ -1,0 +1,92 @@
+apiVersion: k8s.f5.com/v1
+kind: CNEInstance
+metadata:
+  name: {{.InstanceName}}
+  namespace: default
+spec:
+  product:
+    gatewayAPI: true
+    type: BNK
+  manifestVersion: "{{.ManifestVersion}}"
+  # Demo-mode TMM scheduling triple: wholeCluster=false +
+  # dpu.enabled=false + tmmReplicas activates the supported "TMM as
+  # a Deployment with N replicas" code path. The CRD description on
+  # tmmReplicas spells it out: "When WholeCluster and DPU are both
+  # false, this defines how many replicas of TMM should be deployed."
+  # Other combinations land in branches that crash FLO's f5tmm_daemon
+  # set.go reconciler with "assignment to entry in nil map" on BNK
+  # 2.3 / FLO v2.21.13.
+  wholeCluster: false
+  # gatewayAPI=true requires either wholeCluster=true OR a non-empty
+  # watchNamespaces. Since wholeCluster=true + dpu=false trips the
+  # FLO panic, we declare `All` to keep cluster-wide watch behaviour
+  # without the broken combination.
+  watchNamespaces:
+    - All
+  dpu:
+    enabled: false
+  tmmReplicas: 1
+  storageClassName: standard
+  telemetry:
+    loggingSubsystem:
+      enabled: false
+    metricSubsystem:
+      enabled: true
+  certificate:
+    clusterIssuer: bnk-ca-cluster-issuer
+  deploymentSize: "{{.DeploymentSize}}"
+  registry:
+    uri: repo.f5.com
+    imagePullSecrets:
+    - name: far-secret
+    imagePullPolicy: Always
+  # Match the f5-bnk-udf shape on these flags (pseudoCNI/dynamic
+  # routing/firewall ACL all enabled). They aren't strictly needed for
+  # demo-mode TMM, but disabling them tripped an upstream FLO panic in
+  # f5tmm_daemonset.go ("assignment to entry in nil map") on BNK 2.3
+  # — the enabled path initializes maps the disabled path leaves nil.
+  pseudoCNI:
+    enabled: true
+  dynamicRouting:
+    enabled: true
+  coreCollection:
+    enabled: false
+  firewallACL:
+    enabled: true
+  advanced:
+    # The single switch that makes BNK runnable on kind: virtio in the
+    # pod netns instead of SR-IOV / DPU-backed interfaces.
+    demoMode:
+      enabled: true
+    maintenanceMode:
+      enabled: false
+    envDiscovery:
+      enabled: false
+      stopOnFail: true
+      runAfterSuccess: true
+    cneController:
+      env:
+      - name: "TMM_DEFAULT_MTU"
+        value: "1500"
+    tmm:
+      # TMM scheduling is driven by the `app=f5-tmm` label that
+      # `kindbnkctl cluster up` applies to the worker node — FLO's
+      # operator picks nodes with that label on its own. There is no
+      # nodeSelector field in CNEInstance's schema (BNK 2.3 strict-
+      # decodes unknown fields under spec.advanced.tmm).
+      #
+      # Annotations must be non-empty: FLO's TMM deployment reconciler
+      # (f5tmm_deployment.go:170) panics with "assignment to entry in
+      # nil map" if it tries to merge into a nil annotations map. A
+      # single innocuous entry primes the map.
+      annotations:
+        kindbnkctl.f5.com/managed-by: kindbnkctl
+      env:
+      - name: "TMM_CALICO_ROUTER"
+        value: "default"
+      - name: "TMM_DEFAULT_MTU"
+        value: "1500"
+      - name: "TMM_MAPRES_ADDL_VETHS_ON_DP"
+        value: "TRUE"
+      - name: "ZEBOS_STATE"
+        value: legacy

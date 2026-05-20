@@ -1,0 +1,47 @@
+global:
+  imagePullSecrets:
+    - name: far-secret
+  certmgr:
+    clusterIssuer: {{.ClusterIssuer}}
+
+rbac:
+  create: true
+
+namespace: {{.Namespace}}
+containerPlatform: Generic
+ServiceIPFamily: ipv4
+sharedComponentNamespace: {{.SharedComponentNamespace}}
+
+image:
+  repository: repo.f5.com/images
+  name: f5-lifecycle-operator
+  pullPolicy: Always
+
+fluentbit_sidecar:
+  enabled: true
+  image:
+    name: f5-fluentbit
+
+# BNK 2.3 removes the license / TEEM cert chain from this chart. Licensing
+# is a separate `License` CR in the shared-component namespace, applied
+# after CNEInstance reconciles. The F5 Cluster-Wide Controller (CWC)
+# derives the TEEM endpoint from the JWT's `jku` header, so neither
+# prod nor tst customers need to embed cert material here.
+
+"f5-spk-crds-common":
+  versionValidator:
+    image:
+      repository: repo.f5.com/images
+
+"f5-spk-crds-service-proxy":
+  versionValidator:
+    image:
+      repository: repo.f5.com/images
+
+"f5-ipam-operator":
+  image:
+    repository: repo.f5.com/images
+    pullPolicy: Always
+  namespace: {{.Namespace}}
+  nameOverride: f5-ipam-operator
+  fullnameOverride: f5-ipam-operator

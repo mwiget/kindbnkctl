@@ -1,0 +1,153 @@
+# kindbnkctl
+
+Single-binary CLI that deploys F5 BIG-IP Next for Kubernetes (BNK) 2.3.0
+on a two-node [kind](https://kind.sigs.k8s.io/) cluster — one combined
+control-plane + worker, one worker dedicated to TMM running in demo
+mode (virtio inside the pod netns; no DPU, no SR-IOV, no Multus).
+
+Aimed at low-spec corporate laptops where dpubnkctl's bare-metal +
+DPU pipeline is overkill. Same poc.yaml-driven, resume-safe shape;
+much shorter pipeline.
+
+## What this tool does
+
+Drives a BNK deployment in three phases:
+
+1. **cluster up** — `kind create cluster`, install Calico (acts as a
+   simulator for larger SR-IOV deployments), create internal + external
+   docker bridge networks and attach both to every kind node container,
+   label the worker for TMM, fetch kubeconfig.
+2. **deploy prereqs** — namespaces, FAR pull secret, cert-manager.
+3. **deploy flo + cne** — FLO from the release-manifest chart at
+   `repo.f5.com`, License CR with the operator's JWT, CNEInstance with
+   `advanced.demoMode.enabled: true` and TMM pinned via `nodeSelector:
+   app=f5-tmm`.
+
+Symmetric **`destroy`** unwinds it: bnk-forge unregister → `kind
+delete cluster` → docker network rm.
+
+## Pinned versions
+
+| Component | Version |
+|---|---|
+| BNK | 2.3.0 |
+| CNE release manifest | 2.3.0-3.2598.3-0.0.170 |
+| Kubernetes (kind node image) | 1.30.8 (kind v0.26 ships this) |
+| Calico | v3.28.2 |
+| cert-manager | v1.16.2 |
+| FLO chart | resolved at deploy time from the release manifest |
+
+## Minimum host resources
+
+**TBD — not yet measured.** `kindbnkctl doctor` displays "not yet
+measured" until concrete numbers from real laptops settle into
+`internal/version/version.go::MinBaseline` and `MinWithBNKForge`. The
+two are intentionally separate so a low-spec corporate macbook can
+drop bnk-forge and still pass `doctor --strict`.
+
+## bnk-forge integration
+
+If a local [bnk-forge](https://github.com/sp-prod-field/bnk-forge)
+clone exists at `~/git/bnk-forge` (or `$KINDBNKCTL_BNK_FORGE_PATH`)
+when `kindbnkctl init` runs, the new PoC's `bnk_forge:` block is
+pre-filled and enabled. On `cluster up`, kindbnkctl best-effort
+registers the kind cluster with bnk-forge — if the local bnk-forge
+stack isn't running, the auto-hook logs a clean skip and continues.
+
+**`kindbnkctl` never installs or starts bnk-forge for you.** If it's
+configured but not running, bring it up manually (`cd ~/git/bnk-forge
+&& make deploy`) then `kindbnkctl bnk-forge launch` to register
+after the fact.
+
+## Requirements
+
+| Tool | Why |
+|---|---|
+| **Docker** or **Podman** | kind runs Kubernetes nodes as containers; FLO + cert-gen also shell into an `alpine/k8s:1.31.5` container at deploy time |
+| **kind** | cluster bring-up |
+| **kubectl** | cluster reads/writes (apply, wait, label) |
+| **helm** | cert-manager + FLO install, release-manifest pull |
+| **git** *(optional)* | `init` git-inits the PoC repo (skippable with `--no-git`) |
+
+Verify after install:
+
+```bash
+kindbnkctl doctor
+```
+
+What customers supply themselves, dropped into `keys/` of the PoC repo
+(delivered through F5's normal channels):
+
+- FAR tarball — image-pull credentials for `repo.f5.com`
+- JWT — TEEM activation token
+
+## Quick start
+
+```bash
+# 1. Create a fresh PoC repo. Auto-detects ~/git/bnk-forge.
+kindbnkctl init demo --customer "Acme"
+cd demo
+
+# 2. Drop the operator-supplied files into keys/.
+cp /path/to/f5-far-auth-key.tgz keys/
+cp /path/to/license.jwt          keys/.jwt
+
+# 3. Confirm poc.yaml is clean.
+kindbnkctl validate
+
+# 4. Run the pipeline (~10–20 min with a warm docker cache).
+kindbnkctl e2e --yolo --confirm-cluster demo
+
+# 5. Tear down (symmetric):
+kindbnkctl destroy --yolo --confirm-cluster demo
+```
+
+## Per-phase invocation
+
+If you'd rather drive the phases one at a time for diagnostics:
+
+```bash
+kindbnkctl cluster up      --yolo --confirm-cluster demo
+kindbnkctl deploy prereqs  --yolo --confirm-deploy  demo
+kindbnkctl deploy flo      --yolo --confirm-deploy  demo
+kindbnkctl deploy cne      --yolo --confirm-deploy  demo
+```
+
+Every phase is idempotent and gated by `--yolo` plus a typo-guard.
+
+## Repo layout (the binary itself)
+
+```
+cmd/kindbnkctl/        main entrypoint
+internal/cli/          cobra commands (init, validate, doctor, cluster,
+                       deploy, destroy, e2e, bnk-forge, version)
+internal/poc/          poc.yaml schema + I/O
+internal/cluster/      kind + docker wrappers
+internal/deploy/       cert-manager, FLO, License CR, CWC cert-gen
+internal/bnkforge/     bnk-forge HTTP client (copy-fork of dpubnkctl)
+internal/embedded/     go:embed AGENTS.md, CLAUDE.md, templates/
+internal/version/      build-stamped + BNK 2.3.0 pins + min-spec floor
+```
+
+## Repo layout (a PoC created by `kindbnkctl init`)
+
+```
+poc.yaml         declarative state — source of truth
+AGENTS.md        operator + agent guide
+CLAUDE.md        @AGENTS.md include
+journal/         append-only markdown log
+artifacts/       rendered kind.yaml, kubeconfig, helm values, CWC certs
+keys/            gitignored — FAR tgz + JWT live here
+.gitignore       excludes all secret material
+```
+
+## Design references
+
+- **dpubnkctl** — the bare-metal + DPU sister tool. kindbnkctl is a
+  copy-fork: `internal/poc`, `internal/cluster`, `internal/cli` are
+  rewritten for the kind path; `internal/bnkforge`, `internal/deploy`
+  are forked verbatim with minor adjustments (local kubectl/helm
+  instead of containerized).
+- **f5-bnk-udf** — the inspiration for the BNK-on-host shape:
+  `advanced.demoMode.enabled: true` + node label + nodeSelector. Same
+  CNEInstance recipe, minus Multus / SR-IOV / dynamicRouting.

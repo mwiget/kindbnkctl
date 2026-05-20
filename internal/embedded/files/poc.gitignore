@@ -1,0 +1,9 @@
+# Secrets and per-deploy artifacts — never commit.
+keys/*
+!keys/.gitkeep
+artifacts/*
+!artifacts/.gitkeep
+reports/
+*.tgz
+*.jwt
+kubeconfig

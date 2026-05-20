@@ -1,0 +1,14 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: {{.Name}}
+nodes:
+  - role: control-plane
+  - role: worker
+networking:
+  # IPv4-only on purpose — keeps kindnet/calico simple on low-spec
+  # corporate laptops where dual-stack adds churn for no payoff.
+  ipFamily: ipv4
+  # Calico is applied right after `kind create cluster` finishes; the
+  # default kindnet would mask SR-IOV-shaped behavior we want this
+  # cluster to simulate.
+  disableDefaultCNI: true

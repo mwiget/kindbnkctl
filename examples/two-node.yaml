@@ -1,0 +1,38 @@
+# two-node.yaml — minimal BNK-on-kind PoC shape.
+#
+# Crib this file into a fresh PoC with:
+#   kindbnkctl init two-node
+#   cp examples/two-node.yaml two-node/poc.yaml
+#   # then drop FAR tgz + JWT into two-node/keys/
+
+apiVersion: kindbnkctl.f5.com/v1alpha1
+kind: PoC
+metadata:
+    name: two-node
+    customer: CUSTOMIZE-ME
+    bnk_version: 2.3.0
+versions:
+    k8s: "1.30"
+    kind_node_image: kindest/node:v1.30.8
+    cne_manifest: 2.3.0-3.2598.3-0.0.170
+cluster:
+    name: two-node
+    provider: docker
+networks:
+    internal:
+        name: bnk-internal
+        subnet: 198.18.100.0/24
+    external:
+        name: bnk-external
+        subnet: 203.0.113.0/24
+bnk:
+    far_key_ref: keys/f5-far-auth-key.tgz
+    jwt_ref: keys/.jwt
+    demo_mode: true
+bnk_forge:
+    enabled: false
+    repo_path: ~/git/bnk-forge
+    url: https://localhost
+status:
+    cluster: pending
+    deploy: pending
