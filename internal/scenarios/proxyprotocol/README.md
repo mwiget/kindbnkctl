@@ -29,11 +29,9 @@ that value, making end-to-end PROXY plumbing easy to assert.
 All six control-plane assertions pass. The `[bonus]`
 data-plane assertion fails on this BNK 2.3 build.
 
-### Root cause (investigated 2026-05-20)
+### Investigation 2026-05-20 — three patterns tried
 
-Hypothesis 2 + 3 from earlier — *"BNKNetPolicy iRule
-attachment may be HTTP-only"* — turned out to be **wrong**.
-The full chain works fine for L4Route:
+The full CR chain works fine for L4Route:
 
 - `F5BigCneIrule` reconciles (`status.conditions[Programmed]
   CR config sent to all grpc endpoints`).
@@ -44,37 +42,74 @@ The full chain works fine for L4Route:
   the virtual_server config for the L4 listener.
 - TMM audit-logs `action: CREATE; UUID: scn-proxy-pp-prepend;
   event: declTmm.irule; Error: No error`.
-- The iRule **fires** on connections — we patched it with
+- The iRule **fires** on connections — patched with
   `log tmm.local0.info "PP_IRULE: ..."` statements and TMM
-  emits both `<CLIENT_ACCEPTED>` and `<SERVER_CONNECTED>` log
-  lines with the correct client/local IPs and ports.
+  emits `<CLIENT_ACCEPTED>`, `<SERVER_CONNECTED>`, and
+  `<CLIENT_DATA>` log lines with the correct
+  client/local IPs and ports.
 
-Hypothesis 1 — *"TCP::respond semantics differ on BNK L4Route
-vs BIG-IP TMOS"* — is the actual finding. Concretely:
+Three distinct injection patterns tested, all reach the line
+and produce no observable wire output:
 
-- **`TCP::respond` in `SERVER_CONNECTED` is a silent no-op
-  on BNK 2.3 L4Route listeners.** The iRule reaches the line
-  and Tcl reports no error, but nothing is injected.
-- We probed by patching the iRule to `TCP::respond
-  "INVESTIGATION_MARKER_LINE\r\n"`. Neither the client
-  (FRR's `nc`) nor the server (nginx) sees the bytes —
-  nginx still logs `broken header: "GET / HTTP/1.1" while
-  reading PROXY protocol`, and the client receives nothing.
-  The bytes are dropped on the floor.
-- The F5 TMOS workaround `serverside { TCP::respond
-  $proxyhdr }` is **rejected by the F5 validation webhook**:
-  `admission webhook "f5validate.f5net.com" denied the
-  request: braces are required around the expression`. So
-  the documented-elsewhere "force server-side context" form
-  isn't available here either.
+| Pattern | iRule TCL | Outcome |
+|---|---|---|
+| Canonical (matches F5 [DevCentral PROXY Initiator](https://community.f5.com/kb/codeshare/proxy-protocol-initiator/280541)) | `when SERVER_CONNECTED { TCP::respond $proxyhdr }` | iRule logs "called". nginx still gets raw `GET / HTTP/1.1`. |
+| Explicit serverside context (the F5 TMOS workaround when the canonical fails) | `when SERVER_CONNECTED { serverside { TCP::respond $proxyhdr } }` | iRule logs "done". Wire unchanged. |
+| Client-side payload manipulation (TCP::collect + TCP::payload replace + TCP::release in CLIENT_DATA) | `TCP::payload replace 0 0 $proxyhdr` in CLIENT_DATA | iRule logs "released after prepend". `TCP::payload length` returns empty even after `TCP::collect`. nginx wire unchanged. |
 
-The CR-wiring half is genuinely useful as a demonstration
-of how BNK's three iRule-related CRs slot together. The
-data-plane gap is a BNK-build limitation (iRule TCL subset
-on L4Route flows), not a configuration error in this
-scenario. Lifting to green requires F5 to either implement
-`TCP::respond` injection for L4Route or document an
-alternative pattern.
+In every case nginx logs:
+```
+broken header: "GET / HTTP/1.1" while reading PROXY protocol
+```
+
+confirming the first bytes on the server-side socket are still
+the raw HTTP request — the PROXY v1 line never appears.
+
+### Diagnostic correction
+
+The earlier (db42af8) note that `serverside { TCP::respond }`
+was *"rejected by the F5 validation webhook"* was wrong. The
+real rejection trigger was an em-dash character (`—`) in the
+log strings I was using for debugging. The webhook error
+`"braces are required around the expression"` is misleading:
+it actually fires on any non-ASCII byte in the iRule body.
+With ASCII-only strings the `serverside { }` block validates
+cleanly — it just still doesn't inject anything.
+
+### Why this likely doesn't work
+
+TMM's L4Route listener uses the auto-generated `profile_bigproto`
+profile (visible in the CNE controller gRPC trace), not a
+standard TCP profile. The DevCentral PROXY Protocol Initiator
+codeshare explicitly notes *"This requires a TCP profile to be
+applied, so a 'Standard' Virtual Server will need to be used"*.
+BNK's L4Route doesn't seem to offer a switch to use a standard
+TCP profile instead of `bigproto` — and `bigproto` appears to
+silently drop TCP-level payload-injection commands. The
+auto-generated semantic-cache iRule (which DOES work) only
+uses `TCP::respond` for **client-side** HTTP responses on cache
+hits (via `HTTP::respond` and `TCP::close`), never for
+server-side TCP injection.
+
+### What lifting to green would require
+
+- F5 to either implement TCP-level server-side injection on
+  the `profile_bigproto` profile that L4Route uses, OR
+- expose a profile-switch on the Gateway listener so we can
+  request a standard TCP profile, OR
+- document an alternative pattern for PROXY-on-L4 in BNK 2.3+
+  that we haven't found.
+
+None of those are scenario-side workarounds. Amber stays.
+
+Operators can still poke the data plane manually:
+```bash
+kubectl -n scn-bgp exec deploy/scn-frr -c frr -- \
+  curl -sS --fail --max-time 5 http://203.0.113.102:8000/
+# → curl: (52) Empty reply from server
+kubectl -n scn-proxy logs deploy/pp-backend --tail=2
+# → broken header: "GET / HTTP/1.1" while reading PROXY protocol
+```
 
 ## Manifests
 
