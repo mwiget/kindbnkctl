@@ -181,7 +181,20 @@ keys/            gitignored — FAR tgz + JWT live here
 The shape after a full `e2e` plus `bgp-peer-frr` (everything the
 other scenarios build on). Three docker bridge networks on the
 host; two kind node containers; a Multus-managed Linux bridge
-inside the worker that carries the BGP and scenario data plane:
+inside the worker that carries the BGP and scenario data plane.
+
+![Network topology](docs/topology.png)
+
+Source is [`docs/topology.mmd`](docs/topology.mmd) (Mermaid).
+Rebuild with:
+
+```bash
+mmdc -i docs/topology.mmd -o docs/topology.png -t neutral -b white -w 2400
+mmdc -i docs/topology.mmd -o docs/topology.svg -t neutral -b white
+```
+
+<details>
+<summary>ASCII version (handy for grep / offline reading)</summary>
 
 ```
 +----------------------------------------------------------------------------+
@@ -277,6 +290,8 @@ BGP session:
   TCP hook. This is what http-routing-e2e and external-resource-pool
   rely on for their data-plane assertions.
 ```
+
+</details>
 
 Key knob: `CNEInstance.spec.advanced.tmm.env TMM_MAPRES_ADDL_VETHS_ON_DP=FALSE`
 is set by `bgp-peer-frr`. With this `TRUE` (TMM's default for
