@@ -4,6 +4,7 @@
 ![Kubernetes](https://img.shields.io/badge/Kubernetes-1.30.8-326ce5?logo=kubernetes&logoColor=white)
 ![kind](https://img.shields.io/badge/kind-v0.26%2B-1f6feb)
 ![Go](https://img.shields.io/github/go-mod/go-version/mwiget/kindbnkctl)
+![License](https://img.shields.io/github/license/mwiget/kindbnkctl)
 ![Last commit](https://img.shields.io/github/last-commit/mwiget/kindbnkctl)
 
 Single-binary CLI that deploys F5 BIG-IP Next for Kubernetes (BNK) 2.3.0
