@@ -1,0 +1,34 @@
+# Probe pod with curl installed and the replicated CWC client certs
+# + auth token mounted as files. Used by Verify to exercise the
+# CWC admin API both authenticated and unauthenticated.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: probe
+  namespace: scn-cwcadmin
+  labels: {app: probe}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: probe}
+  template:
+    metadata:
+      labels: {app: probe}
+    spec:
+      containers:
+      - name: probe
+        image: curlimages/curl:8.10.1
+        command: ["sh", "-c", "while true; do sleep 3600; done"]
+        volumeMounts:
+        - {name: certs, mountPath: /certs, readOnly: true}
+        - {name: token, mountPath: /token, readOnly: true}
+        resources:
+          requests: {cpu: 10m, memory: 16Mi}
+          limits:   {cpu: 100m, memory: 32Mi}
+      volumes:
+      - name: certs
+        secret:
+          secretName: cwc-license-client-certs
+      - name: token
+        secret:
+          secretName: cwc-auth-token
