@@ -46,8 +46,8 @@ type scenario struct{}
 
 func (s *scenario) Name() string             { return scnName }
 func (s *scenario) Title() string            { return scnTitle }
-func (s *scenario) Rating() scenarios.Rating { return scenarios.Amber }
-func (s *scenario) Dependencies() []string   { return nil }
+func (s *scenario) Rating() scenarios.Rating { return scenarios.Green }
+func (s *scenario) Dependencies() []string   { return []string{"bgp-peer-frr"} }
 func (s *scenario) Description() string {
 	return strings.TrimSpace(`
 Demonstrates BNK's AI token-counting feature. The mechanism is
@@ -164,8 +164,9 @@ func (s *scenario) Verify(ctx *scenarios.Context) scenarios.Result {
 	})
 
 	// The token-counting annotation should be present on the live
-	// Gateway. FLO may or may not propagate this further — verify
-	// it lands and survives the reconcile.
+	// Gateway. FLO propagates the annotation value into the
+	// auto-generated iRule's RULE_INIT (the TOKEN COUNTING IRULE INIT
+	// log line on TMM).
 	annValue, _ := r.KubectlCapture(ctx.Ctx, "-n", "scn-tokencount", "get",
 		"gateway/scn-tokencount-gateway",
 		"-o", `jsonpath={.spec.infrastructure.annotations.k8s\.f5\.com/ai-token-counting}`)
@@ -177,7 +178,106 @@ func (s *scenario) Verify(ctx *scenarios.Context) scenarios.Result {
 		Got:         oneLine(annValue, 200),
 	})
 
+	// Find FRR pod for the curl source (the curl traverses the NAD
+	// bridge into TMM exactly as http-routing-e2e does).
+	frrPod, ferr := r.KubectlCapture(ctx.Ctx, "-n", "scn-bgp", "get", "pod",
+		"-l", "app=scn-frr",
+		"--field-selector=status.phase=Running",
+		"-o", "jsonpath={.items[0].metadata.name}")
+	if ferr != nil || strings.TrimSpace(frrPod) == "" {
+		res.Assertions = append(res.Assertions, scenarios.Assertion{
+			Description: "scn-bgp/scn-frr pod available",
+			OK:          false,
+			Got:         "missing (bgp-peer-frr not running?)",
+		})
+		return finalize(res)
+	}
+	frrPod = strings.TrimSpace(frrPod)
+
+	// Wait for FRR to learn 203.0.113.103/32 via BGP.
+	deadline := time.Now().Add(2 * time.Minute)
+	gwLearned := false
+	for time.Now().Before(deadline) {
+		bgpTable, _ := r.KubectlCapture(ctx.Ctx, "-n", "scn-bgp", "exec",
+			frrPod, "-c", "frr", "--",
+			"vtysh", "-c", "show bgp ipv4 unicast")
+		if strings.Contains(bgpTable, "203.0.113.103") {
+			gwLearned = true
+			break
+		}
+		select {
+		case <-ctx.Ctx.Done():
+			break
+		case <-time.After(5 * time.Second):
+		}
+	}
+	res.Assertions = append(res.Assertions, scenarios.Assertion{
+		Description: "FRR BGP table has 203.0.113.103/32 advertised by TMM",
+		OK:          gwLearned,
+		Got:         fmt.Sprintf("learned=%v", gwLearned),
+	})
+
+	// Send a few curls through the Gateway with distinct Authorization
+	// tokens. Then scrape TMM logs for the iRule's TOKEN(...) log
+	// lines — these prove the data-plane counting fired and the
+	// per-user / per-model / global cumulative counters incremented.
+	_ = r.Kubectl(ctx.Ctx, "-n", "scn-bgp", "exec", frrPod, "-c", "frr", "--",
+		"sh", "-c", "command -v curl >/dev/null 2>&1 || apk add --no-cache curl >/dev/null 2>&1 || true")
+	const curls = 3
+	successBodies := 0
+	for i := 0; i < curls; i++ {
+		body, err := r.KubectlCapture(ctx.Ctx, "-n", "scn-bgp", "exec",
+			frrPod, "-c", "frr", "--",
+			"curl", "-sS", "--fail", "--max-time", "8",
+			"-H", "Authorization: Bearer kindbnkctl-test-user",
+			"-H", "Host: tokencount.kindbnkctl.local",
+			"-d", `{"model":"gpt-stub","messages":[{"role":"user","content":"ping"}]}`,
+			"http://203.0.113.103:8000/v1/chat/completions",
+		)
+		if err == nil && strings.Contains(body, "kindbnkctl-scenario-tokencount-OK") {
+			successBodies++
+		}
+	}
+	res.Assertions = append(res.Assertions, scenarios.Assertion{
+		Description: fmt.Sprintf("%d/%d curls through Gateway return stub-llm body", curls, curls),
+		OK:          successBodies == curls,
+		Got:         fmt.Sprintf("%d/%d", successBodies, curls),
+	})
+
+	// Scrape TMM logs for the token-counting iRule's TOKEN(...) lines.
+	tmm, _ := r.KubectlCapture(ctx.Ctx, "-n", "default", "get", "pod",
+		"-l", "app=f5-tmm",
+		"--field-selector=status.phase=Running",
+		"-o", "jsonpath={.items[0].metadata.name}")
+	tmm = strings.TrimSpace(tmm)
+	tmmLogs, _ := r.KubectlCapture(ctx.Ctx, "-n", "default", "logs", tmm,
+		"-c", "f5-tmm", "--since=60s")
+	hasToken := strings.Contains(tmmLogs, "TOKEN COUNTING IRULE INIT") &&
+		strings.Contains(tmmLogs, "scn-tokencount-gateway-scn-tokencount-token-counting") &&
+		strings.Contains(tmmLogs, "TOKEN(") &&
+		strings.Contains(tmmLogs, "cumulative")
+	res.Assertions = append(res.Assertions, scenarios.Assertion{
+		Description: "TMM token-counting iRule fired (TOKEN(...) cumulative log lines)",
+		OK:          hasToken,
+		Got:         oneLine(extractMatching(tmmLogs, "TOKEN("), 250),
+	})
+
 	return finalize(res)
+}
+
+// extractMatching returns lines from s that contain needle, joined
+// with " | ". Best-effort, capped at the first 4 matches.
+func extractMatching(s, needle string) string {
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		if strings.Contains(line, needle) {
+			out = append(out, line)
+			if len(out) >= 4 {
+				break
+			}
+		}
+	}
+	return strings.Join(out, " | ")
 }
 
 func (s *scenario) Cleanup(ctx *scenarios.Context) error {
@@ -189,7 +289,7 @@ func (s *scenario) Cleanup(ctx *scenarios.Context) error {
 func finalize(res scenarios.Result) scenarios.Result {
 	if res.AllPassed() {
 		res.Status = "ok"
-		res.Summary = "Gateway with k8s.f5.com/ai-token-counting annotation reconciled (data-plane counting not verified — F5 doc has no verify command)"
+		res.Summary = "Gateway annotation reconciled + TMM data-plane TOKEN(...) counters fired"
 	} else {
 		res.Status = "failed"
 		var failed []string

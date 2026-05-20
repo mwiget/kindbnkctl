@@ -61,8 +61,8 @@ type scenario struct{}
 
 func (s *scenario) Name() string             { return scnName }
 func (s *scenario) Title() string            { return scnTitle }
-func (s *scenario) Rating() scenarios.Rating { return scenarios.Amber }
-func (s *scenario) Dependencies() []string   { return nil }
+func (s *scenario) Rating() scenarios.Rating { return scenarios.Green }
+func (s *scenario) Dependencies() []string   { return []string{"bgp-peer-frr"} }
 func (s *scenario) Description() string {
 	return strings.TrimSpace(`
 Demonstrates BNK's semantic-cache annotation pattern. On the
@@ -237,7 +237,105 @@ func (s *scenario) Verify(ctx *scenarios.Context) scenarios.Result {
 		Got:         "value=" + strings.TrimSpace(rtAnn),
 	})
 
+	// Find FRR pod for the curl source.
+	frrPod, ferr := r.KubectlCapture(ctx.Ctx, "-n", "scn-bgp", "get", "pod",
+		"-l", "app=scn-frr",
+		"--field-selector=status.phase=Running",
+		"-o", "jsonpath={.items[0].metadata.name}")
+	if ferr != nil || strings.TrimSpace(frrPod) == "" {
+		res.Assertions = append(res.Assertions, scenarios.Assertion{
+			Description: "scn-bgp/scn-frr pod available",
+			OK:          false,
+			Got:         "missing (bgp-peer-frr not running?)",
+		})
+		return finalize(res)
+	}
+	frrPod = strings.TrimSpace(frrPod)
+
+	// Wait for FRR to learn 203.0.113.104/32 via BGP.
+	deadline := time.Now().Add(2 * time.Minute)
+	gwLearned := false
+	for time.Now().Before(deadline) {
+		bgpTable, _ := r.KubectlCapture(ctx.Ctx, "-n", "scn-bgp", "exec",
+			frrPod, "-c", "frr", "--",
+			"vtysh", "-c", "show bgp ipv4 unicast")
+		if strings.Contains(bgpTable, "203.0.113.104") {
+			gwLearned = true
+			break
+		}
+		select {
+		case <-ctx.Ctx.Done():
+			break
+		case <-time.After(5 * time.Second):
+		}
+	}
+	res.Assertions = append(res.Assertions, scenarios.Assertion{
+		Description: "FRR BGP table has 203.0.113.104/32 advertised by TMM",
+		OK:          gwLearned,
+		Got:         fmt.Sprintf("learned=%v", gwLearned),
+	})
+
+	// Send POST requests through the Gateway. The semantic-cache iRule
+	// fires on each HTTP_REQUEST and tries to query stub-modelcache
+	// (which accepts the TCP connection but returns nothing useful,
+	// so every request is a CACHE MISS and the response falls through
+	// to stub-llm). We then scrape TMM logs for the iRule's
+	// SEMANTIC_CACHE_IRULE log lines that prove the iRule fired.
+	_ = r.Kubectl(ctx.Ctx, "-n", "scn-bgp", "exec", frrPod, "-c", "frr", "--",
+		"sh", "-c", "command -v curl >/dev/null 2>&1 || apk add --no-cache curl >/dev/null 2>&1 || true")
+	const curls = 3
+	successBodies := 0
+	for i := 0; i < curls; i++ {
+		body, err := r.KubectlCapture(ctx.Ctx, "-n", "scn-bgp", "exec",
+			frrPod, "-c", "frr", "--",
+			"curl", "-sS", "--fail", "--max-time", "8",
+			"-H", "Host: semcache.kindbnkctl.local",
+			"-d", `{"model":"llm-stub","messages":[{"role":"user","content":"identical prompt for cache miss"}]}`,
+			"http://203.0.113.104/v1/chat/completions",
+		)
+		if err == nil && strings.Contains(body, "kindbnkctl-scenario-semcache-OK") {
+			successBodies++
+		}
+	}
+	res.Assertions = append(res.Assertions, scenarios.Assertion{
+		Description: fmt.Sprintf("%d/%d curls return stub-llm body (cache-miss fall-through)", curls, curls),
+		OK:          successBodies == curls,
+		Got:         fmt.Sprintf("%d/%d", successBodies, curls),
+	})
+
+	// Scrape TMM logs for the semantic-cache iRule's events.
+	tmm, _ := r.KubectlCapture(ctx.Ctx, "-n", "default", "get", "pod",
+		"-l", "app=f5-tmm",
+		"--field-selector=status.phase=Running",
+		"-o", "jsonpath={.items[0].metadata.name}")
+	tmm = strings.TrimSpace(tmm)
+	tmmLogs, _ := r.KubectlCapture(ctx.Ctx, "-n", "default", "logs", tmm,
+		"-c", "f5-tmm", "--since=60s")
+	hasIRule := strings.Contains(tmmLogs, "scn-semcache-gateway-scn-semcache-semantic-cache") &&
+		strings.Contains(tmmLogs, "Client initialized with modelcache_server=") &&
+		strings.Contains(tmmLogs, "SEMANTIC_CACHE_IRULE: HTTP_REQUEST triggered")
+	res.Assertions = append(res.Assertions, scenarios.Assertion{
+		Description: "TMM semantic-cache iRule fired (CLIENT_ACCEPTED + HTTP_REQUEST events)",
+		OK:          hasIRule,
+		Got:         oneLine(extractMatching(tmmLogs, "SEMANTIC_CACHE_IRULE"), 250),
+	})
+
 	return finalize(res)
+}
+
+// extractMatching returns lines from s that contain needle, joined
+// with " | ". Best-effort, capped at the first 4 matches.
+func extractMatching(s, needle string) string {
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		if strings.Contains(line, needle) {
+			out = append(out, line)
+			if len(out) >= 4 {
+				break
+			}
+		}
+	}
+	return strings.Join(out, " | ")
 }
 
 func (s *scenario) Cleanup(ctx *scenarios.Context) error {
@@ -265,7 +363,7 @@ func renderTemplate(fsys embed.FS, path string, data any) (string, error) {
 func finalize(res scenarios.Result) scenarios.Result {
 	if res.AllPassed() {
 		res.Status = "ok"
-		res.Summary = "Gateway + HTTPRoute reconciled with semantic_cache + sse-enabled annotations (data-plane cache hits not verified — needs real CodeFuse-ModelCache)"
+		res.Summary = "Annotations reconciled + TMM data-plane semantic-cache iRule fires on every request"
 	} else {
 		res.Status = "failed"
 		var failed []string

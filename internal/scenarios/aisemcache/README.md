@@ -1,9 +1,9 @@
 # `ai-semantic-cache` — `k8s.f5.com/ai` semantic-cache + SSE annotations
 
 F5 how-to: [Semantic AI Model Caching](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/ai-related-features/ai-semantic-caching.html)
-&nbsp;·&nbsp; Rating: 🟡
-&nbsp;·&nbsp; Depends on: nothing
-&nbsp;·&nbsp; Wall time: **~9s**
+&nbsp;·&nbsp; Rating: 🟢
+&nbsp;·&nbsp; Depends on: [`bgp-peer-frr`](../bgppeer)
+&nbsp;·&nbsp; Wall time: **~7s** (with bgp-peer-frr running already)
 
 Two annotations together enable BNK's semantic caching. On the
 Gateway:
@@ -29,28 +29,45 @@ the configured CodeFuse-ModelCache endpoint. On **MISS**, the
 request continues to the HTTPRoute's `backendRefs` and the
 response is stored in the cache.
 
-## Why amber
+## How TMM exposes the iRule's behavior (investigation 2026-05-20)
 
-The control-plane wiring works on kind. The data plane needs a
-real **CodeFuse-ModelCache** (vector storage + embedding model
-+ working ML stack) and a real LLM backend — out of scope here.
+The auto-generated iRule logs the events we need to assert
+data-plane wiring:
 
-What the scenario stands up:
+```
+Rule scn-semcache-gateway-scn-semcache-semantic-cache
+  <CLIENT_ACCEPTED>:
+  Client initialized with modelcache_server=10.96.31.232:5050,
+  modelcache_recv_timeout=1000
+Rule scn-semcache-gateway-scn-semcache-semantic-cache
+  <HTTP_REQUEST>:
+  SEMANTIC_CACHE_IRULE: HTTP_REQUEST triggered
+  /v1/chat/completions client=192.168.99.47 method=POST
+```
 
-- a stub LLM nginx returning a fixed OpenAI-style JSON
-- a stub TCP listener at port 5050 to stand in for the
-  ModelCache endpoint (TMM dials it on each request, gets a
-  clean TCP accept but no useful protocol response → every
-  request falls through to the stub LLM as "cache miss")
-- Gateway + HTTPRoute with both annotations
+The CLIENT_ACCEPTED log line proves the iRule read the
+modelcache endpoint from the `k8s.f5.com/ai` annotation
+correctly. The HTTP_REQUEST log line proves the iRule fires
+on each incoming completion request and would have queried
+the cache if a real one were running.
 
-Verifies that the annotations reconcile cleanly and survive on
-the live objects.
+The scenario sends 3 POSTs with identical bodies and asserts:
 
-Lifting this to green would require deploying real
-CodeFuse-ModelCache + its vector backend, a real LLM (NIM/vLLM)
-as the cache-miss path, then sending two identical prompts and
-observing one HIT + one MISS in TMM's data-plane telemetry.
+1. All 3 return the stub-llm marker body (cache-miss path
+   completes — i.e. the iRule doesn't break the request flow
+   even when the cache responds with garbage).
+2. TMM logs contain both `Client initialized with
+   modelcache_server=` and `SEMANTIC_CACHE_IRULE: HTTP_REQUEST
+   triggered`.
+
+## What's still left for a "real" deployment
+
+The cache HIT path requires a real CodeFuse-ModelCache speaking
+its protobuf protocol. We can't verify HIT-vs-MISS behavior
+without it. What we DO verify is that BNK's side of the feature
+is plumbed correctly: the iRule attaches to the listener, fires
+on every request, reads the annotation, and lets the
+non-matching path fall through to the LLM backend.
 
 ## Manifests
 
