@@ -176,6 +176,64 @@ keys/            gitignored — FAR tgz + JWT live here
 .gitignore       excludes all secret material
 ```
 
+## Scenarios — testing F5 how-tos against the running cluster
+
+After `e2e` brings the cluster up, drive named test scenarios against
+it. Each scenario maps to one F5 how-to article (or sub-article) and
+exercises a slice of BNK functionality end-to-end: render manifests
+into `artifacts/scenarios/<name>/`, apply them, assert reconciled
+state, write a JSON+md report under `reports/<timestamp>/scenarios/`.
+
+```bash
+kindbnkctl scenario list                            # all known scenarios + rating
+kindbnkctl scenario run http-routing --poc ./demo   # apply + verify + report
+kindbnkctl scenario run http-routing --dry-run      # render manifests only
+kindbnkctl scenario clean http-routing              # delete what was applied
+```
+
+Rating is a stable hint about what's testable in the 2-node / demo-TMM
+shape:
+
+| Rating | Meaning |
+|---|---|
+| green | fully testable here |
+| amber | partially testable — control-plane verifies, data-plane plumbing missing |
+| red   | requires real DPUs / BGP peers / etc.; listed for discoverability, never executed |
+
+Scoring of the [F5 BNK how-tos index](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/):
+
+| # | How-to | Rating | Status |
+|---|---|---|---|
+| 1 | Restrict access to sensitive data | 🟢 green | not yet implemented |
+| 2 | Components needing cluster-wide access | 🟢 green | not yet implemented |
+| 3 | Set up dynamic routing with BGP | 🔴 red | needs real BGP peer |
+| 4 | Set up core file collection | 🟡 amber | not yet implemented |
+| 5 | Configure DOCA Offloads on DPU | 🔴 red | needs DPU |
+| 6 | Configure Token Counting and Enforcement | 🟢 green | not yet implemented |
+| 7 | Configure AI Traffic Optimization Features | 🟡 amber | not yet implemented |
+| **8** | **HTTP traffic steering with Gateway API HTTPRoute** | **🟡 amber** | **implemented (`http-routing`)** |
+| 9 | Proxy Protocol iRule support for L4 routes | 🟡 amber | not yet implemented |
+| 10 | Load Balance Traffic to External Resources | 🟢 green | not yet implemented |
+| 11 | Static Active-Standby Interface Bonding | 🔴 red | needs real NICs |
+| 12 | TMOS DNS Service Integration with CIS | 🟡 amber | not yet implemented |
+
+The implemented `http-routing` scenario is rated amber because TMM's
+demoMode listener can't be reached from outside the pod netns on
+kind — control-plane reconciliation (GatewayClass + Gateway +
+HTTPRoute + Listener Programmed) is fully verified, but the
+end-to-end curl is out of scope until a data-plane plumbing
+scenario lands.
+
+## Testing
+
+```bash
+make test    # Go unit tests (poc, deploy, cluster, scenarios)
+make smoke   # unit tests + Layer A CLI smoke (no cluster required, ~5s)
+```
+
+`make smoke` is the gate to run before pushing — it covers the
+non-cluster-dependent surface area in one shot.
+
 ## Design references
 
 - **dpubnkctl** — the bare-metal + DPU sister tool. kindbnkctl is a

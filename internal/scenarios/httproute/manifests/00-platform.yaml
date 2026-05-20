@@ -1,0 +1,23 @@
+# F5BnkGateway tells the FLO Gateway controller where to allocate IPs
+# from when it Programs a Gateway listener. Without one, every
+# Gateway's status.addresses stays empty and Programmed never flips
+# to True (reason=AddressNotAssigned).
+#
+# We point at the external docker network's range so the assigned
+# IPs are at least plausible from inside the kind nodes (those node
+# containers join `bnk-external` during `cluster up`). The pool isn't
+# routable from outside the laptop, but scenarios verify in-cluster
+# only.
+apiVersion: k8s.f5net.com/v1
+kind: F5BnkGateway
+metadata:
+  name: kindbnkctl-default
+  namespace: scn-httproute
+spec:
+  ingressConfig:
+    defaultListenerNetworks:
+    - name: external
+      ipv4BaseCidr: 203.0.113.0/24
+      startAddress: 203.0.113.100
+      endAddress: 203.0.113.200
+      provider: f5-ip-provider

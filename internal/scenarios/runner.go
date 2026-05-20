@@ -1,0 +1,140 @@
+package scenarios
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+// Run drives one scenario through Manifests → Apply → Verify and
+// persists a report at <PoCDir>/reports/<timestamp>/scenarios/<name>.json.
+// Returns the Result so the caller (CLI) can set the process exit code.
+func Run(ctx *Context, s Scenario) Result {
+	started := time.Now()
+	fmt.Fprintf(ctx.Out, "scenario:  %s  (%s)\n", s.Name(), s.Rating())
+	fmt.Fprintf(ctx.Out, "title:     %s\n\n", s.Title())
+
+	if s.Rating() == Red {
+		r := Result{
+			Status:  "skipped",
+			Summary: "rated red — not testable in the kindbnkctl 2-node / demo-TMM shape",
+			Details: s.Description(),
+		}
+		writeReport(ctx.PoCDir, s.Name(), r, started)
+		fmt.Fprintln(ctx.Out, "SKIPPED — see report")
+		return r
+	}
+
+	fmt.Fprintln(ctx.Out, "[1/3] Rendering manifests ...")
+	paths, err := s.Manifests(ctx)
+	if err != nil {
+		return finalize(ctx, s, started, Result{
+			Status:  "failed",
+			Summary: "render: " + err.Error(),
+		})
+	}
+	for _, p := range paths {
+		fmt.Fprintf(ctx.Out, "      %s\n", p)
+	}
+
+	if ctx.DryRun {
+		r := Result{
+			Status:   "dry-run",
+			Summary:  fmt.Sprintf("%d manifest(s) rendered; nothing applied", len(paths)),
+			Manifest: strings.Join(paths, ","),
+		}
+		writeReport(ctx.PoCDir, s.Name(), r, started)
+		return r
+	}
+
+	fmt.Fprintln(ctx.Out, "[2/3] Applying ...")
+	if err := s.Apply(ctx); err != nil {
+		return finalize(ctx, s, started, Result{
+			Status:  "failed",
+			Summary: "apply: " + err.Error(),
+		})
+	}
+
+	fmt.Fprintln(ctx.Out, "[3/3] Verifying ...")
+	r := s.Verify(ctx)
+	r.Manifest = strings.Join(paths, ",")
+	return finalize(ctx, s, started, r)
+}
+
+func finalize(ctx *Context, s Scenario, started time.Time, r Result) Result {
+	writeReport(ctx.PoCDir, s.Name(), r, started)
+	fmt.Fprintf(ctx.Out, "      %s — %s\n", strings.ToUpper(r.Status), r.Summary)
+	if r.Details != "" {
+		fmt.Fprintln(ctx.Out, "      "+r.Details)
+	}
+	return r
+}
+
+// writeReport persists the result as JSON under
+// <PoCDir>/reports/<RFC3339-timestamp>/scenarios/<name>.json. Same
+// reports/ tree as e2e so the operator has one place to look. Errors
+// are warned, not raised — a missing report shouldn't fail the run.
+func writeReport(pocDir, name string, r Result, started time.Time) {
+	stamp := started.UTC().Format("2006-01-02T15-04-05Z")
+	dir := filepath.Join(pocDir, "reports", stamp, "scenarios")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	full := struct {
+		Result
+		Scenario  string        `json:"scenario"`
+		StartedAt time.Time     `json:"started_at"`
+		Duration  string        `json:"duration"`
+	}{
+		Result:    r,
+		Scenario:  name,
+		StartedAt: started.UTC(),
+		Duration:  time.Since(started).Truncate(time.Second).String(),
+	}
+	data, _ := json.MarshalIndent(full, "", "  ")
+	_ = os.WriteFile(filepath.Join(dir, name+".json"), data, 0o644)
+}
+
+// Cleanup runs the scenario's Cleanup hook and emits a one-line
+// status to ctx.Out.
+func Cleanup(ctx *Context, s Scenario) error {
+	fmt.Fprintf(ctx.Out, "scenario:  %s\ncleaning...\n", s.Name())
+	if err := s.Cleanup(ctx); err != nil {
+		return err
+	}
+	fmt.Fprintln(ctx.Out, "OK")
+	return nil
+}
+
+// EnsureScenarioDir creates <PoCDir>/artifacts/scenarios/<name>/ and
+// returns its absolute path. Scenarios use this to write rendered
+// manifests so the operator can inspect them later.
+func EnsureScenarioDir(pocDir, name string) (string, error) {
+	dir := filepath.Join(pocDir, "artifacts", "scenarios", name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// WriteManifest writes body to <PoCDir>/artifacts/scenarios/<name>/<file>.
+// Returns the absolute path written.
+func WriteManifest(pocDir, name, file, body string) (string, error) {
+	dir, err := EnsureScenarioDir(pocDir, name)
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, file)
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// Discard is an io.Writer that drops everything — handy for tests
+// that don't want scenario chatter on stderr.
+var Discard io.Writer = io.Discard

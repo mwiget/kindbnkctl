@@ -38,6 +38,7 @@ are reachable.`,
 		newDeployCmd(),
 		newDestroyCmd(),
 		newE2ECmd(),
+		newScenarioCmd(),
 		newBNKForgeCmd(),
 		newVersionCmd(),
 	)
