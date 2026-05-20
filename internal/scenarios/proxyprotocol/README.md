@@ -27,28 +27,54 @@ that value, making end-to-end PROXY plumbing easy to assert.
 ## Why amber, not green
 
 All six control-plane assertions pass. The `[bonus]`
-data-plane assertion fails on this BNK 2.3 build:
+data-plane assertion fails on this BNK 2.3 build.
 
-- TMM accepts the L4 connection and proxies it through.
-- The iRule's `TCP::respond` does not actually inject the
-  PROXY v1 header before the server-side payload.
-- nginx logs `broken header: "GET / HTTP/1.1" while reading
-  PROXY protocol` and returns "Empty reply from server".
+### Root cause (investigated 2026-05-20)
 
-Untested hypotheses for why:
+Hypothesis 2 + 3 from earlier — *"BNKNetPolicy iRule
+attachment may be HTTP-only"* — turned out to be **wrong**.
+The full chain works fine for L4Route:
 
-1. `TCP::respond` semantics may differ on BNK L4Route vs
-   BIG-IP TMOS; might require `TCP::collect` / `TCP::release`
-   or a different event.
-2. `BNKNetPolicy` iRule attachment may be HTTP-only in this
-   build, not honored for L4Route TCP listeners.
-3. `sectionName` routing on `BNKNetPolicy` might not propagate
-   to TMM's iRule processor for non-HTTP listeners.
+- `F5BigCneIrule` reconciles (`status.conditions[Programmed]
+  CR config sent to all grpc endpoints`).
+- `BNKNetPolicy` reconciles (`ResolvedRefs True`,
+  ancestorRef = Gateway, descendantRef = F5BigCneIrule).
+- The CNE controller pushes the iRule body to TMM via gRPC
+  AND adds `"irules_reference": ["scn-proxy-pp-prepend"]` to
+  the virtual_server config for the L4 listener.
+- TMM audit-logs `action: CREATE; UUID: scn-proxy-pp-prepend;
+  event: declTmm.irule; Error: No error`.
+- The iRule **fires** on connections — we patched it with
+  `log tmm.local0.info "PP_IRULE: ..."` statements and TMM
+  emits both `<CLIENT_ACCEPTED>` and `<SERVER_CONNECTED>` log
+  lines with the correct client/local IPs and ports.
 
-The CR-wiring half is still a useful demonstration of how the
-new BNK CRs slot together. Until BNK fixes (or documents
-differently), the data-plane curl stays as a `[bonus]`
-non-fatal assertion.
+Hypothesis 1 — *"TCP::respond semantics differ on BNK L4Route
+vs BIG-IP TMOS"* — is the actual finding. Concretely:
+
+- **`TCP::respond` in `SERVER_CONNECTED` is a silent no-op
+  on BNK 2.3 L4Route listeners.** The iRule reaches the line
+  and Tcl reports no error, but nothing is injected.
+- We probed by patching the iRule to `TCP::respond
+  "INVESTIGATION_MARKER_LINE\r\n"`. Neither the client
+  (FRR's `nc`) nor the server (nginx) sees the bytes —
+  nginx still logs `broken header: "GET / HTTP/1.1" while
+  reading PROXY protocol`, and the client receives nothing.
+  The bytes are dropped on the floor.
+- The F5 TMOS workaround `serverside { TCP::respond
+  $proxyhdr }` is **rejected by the F5 validation webhook**:
+  `admission webhook "f5validate.f5net.com" denied the
+  request: braces are required around the expression`. So
+  the documented-elsewhere "force server-side context" form
+  isn't available here either.
+
+The CR-wiring half is genuinely useful as a demonstration
+of how BNK's three iRule-related CRs slot together. The
+data-plane gap is a BNK-build limitation (iRule TCL subset
+on L4Route flows), not a configuration error in this
+scenario. Lifting to green requires F5 to either implement
+`TCP::respond` injection for L4Route or document an
+alternative pattern.
 
 ## Manifests
 
