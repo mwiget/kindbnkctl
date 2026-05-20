@@ -206,23 +206,28 @@ Scoring of the [F5 BNK how-tos index](https://clouddocs.f5.com/bigip-next-for-ku
 |---|---|---|---|
 | 1 | Restrict access to sensitive data | 🟢 green | not yet implemented |
 | 2 | Components needing cluster-wide access | 🟢 green | not yet implemented |
-| 3 | Set up dynamic routing with BGP | 🔴 red | needs real BGP peer |
+| **3** | **Set up dynamic routing with BGP** | **🟡 amber** | **implemented (`bgp-peer-frr`)** |
 | 4 | Set up core file collection | 🟡 amber | not yet implemented |
 | 5 | Configure DOCA Offloads on DPU | 🔴 red | needs DPU |
 | 6 | Configure Token Counting and Enforcement | 🟢 green | not yet implemented |
 | 7 | Configure AI Traffic Optimization Features | 🟡 amber | not yet implemented |
-| **8** | **HTTP traffic steering with Gateway API HTTPRoute** | **🟡 amber** | **implemented (`http-routing`)** |
+| **8** | **HTTP traffic steering with Gateway API HTTPRoute** | **🟡 amber** | **implemented (`http-routing-e2e`)** |
 | 9 | Proxy Protocol iRule support for L4 routes | 🟡 amber | not yet implemented |
 | 10 | Load Balance Traffic to External Resources | 🟢 green | not yet implemented |
 | 11 | Static Active-Standby Interface Bonding | 🔴 red | needs real NICs |
 | 12 | TMOS DNS Service Integration with CIS | 🟡 amber | not yet implemented |
 
-The implemented `http-routing` scenario is rated amber because TMM's
-demoMode listener can't be reached from outside the pod netns on
-kind — control-plane reconciliation (GatewayClass + Gateway +
-HTTPRoute + Listener Programmed) is fully verified, but the
-end-to-end curl is out of scope until a data-plane plumbing
-scenario lands.
+Both implemented scenarios verify control-plane reconciliation
+(deploys, ConfigMaps, CRs, conditions) fully; their data-plane
+end states are recorded as `[bonus]` assertions in the report
+and don't fail the scenario. The bonus assertions all hinge on
+the same gap: making BGP between TMM's ZeBOS and the FRR peer
+reach Established on the kind / demoMode shape. The
+`bgp-peer-frr` scenario description enumerates the three pieces
+needed (populate `f5-tmm-dynamic-routing.vlanName`, provide
+`passwd.conf`, inject fake-gateway routes into the TMM pod's
+netns) — a follow-up scenario that addresses those lifts both
+this and `http-routing-e2e` to green automatically.
 
 ## Testing
 

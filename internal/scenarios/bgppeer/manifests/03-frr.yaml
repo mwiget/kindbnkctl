@@ -1,0 +1,77 @@
+# FRR BGP-peer pod. NET_ADMIN + NET_RAW so bgpd can open AF_NETLINK
+# sockets and program kernel routes. Image pin is a stable upstream
+# tag; bumping it is a deliberate change.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scn-frr
+  namespace: scn-bgp
+  labels: {app: scn-frr}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: scn-frr}
+  template:
+    metadata:
+      labels: {app: scn-frr}
+    spec:
+      # Avoid landing on the TMM-dedicated worker so FRR doesn't fight
+      # for CPU during heavy gateway loads. Control-plane node is
+      # schedulable in kindbnkctl's two-node setup.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels: {app: f5-tmm}
+              topologyKey: kubernetes.io/hostname
+      initContainers:
+      # The FRR image expects /etc/frr to be writable and to contain
+      # daemons + frr.conf + vtysh.conf with mode 640 / owner frr:frr.
+      # The ConfigMap mount lands as root:root mode 644 — copy it
+      # into /etc/frr and chown.
+      - name: bootstrap
+        image: quay.io/frrouting/frr:9.1.0
+        command:
+        - sh
+        - -c
+        - |
+          cp /tmp/frr-cm/* /etc/frr/ && \
+          chown -R frr:frr /etc/frr && \
+          chmod 640 /etc/frr/* && \
+          ls -la /etc/frr/
+        volumeMounts:
+        - {name: frr-config, mountPath: /tmp/frr-cm}
+        - {name: frr-etc,    mountPath: /etc/frr}
+      containers:
+      - name: frr
+        image: quay.io/frrouting/frr:9.1.0
+        securityContext:
+          capabilities:
+            add: [NET_ADMIN, NET_RAW, SYS_ADMIN]
+        volumeMounts:
+        - {name: frr-etc, mountPath: /etc/frr}
+        readinessProbe:
+          exec:
+            command: ["vtysh", "-c", "show bgp summary"]
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests: {cpu: 20m, memory: 32Mi}
+          limits:   {cpu: 200m, memory: 128Mi}
+      volumes:
+      - name: frr-config
+        configMap: {name: frr-config}
+      - name: frr-etc
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scn-frr
+  namespace: scn-bgp
+spec:
+  selector: {app: scn-frr}
+  ports:
+  - {name: bgp, port: 179, targetPort: 179}

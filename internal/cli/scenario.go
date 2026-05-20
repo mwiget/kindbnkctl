@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -15,7 +16,8 @@ import (
 	// Side-effect imports: each blank-imported package registers its
 	// scenario(s) with internal/scenarios at init time. Add new ones
 	// here as they land.
-	_ "github.com/mwiget/kindbnkctl/internal/scenarios/httproute"
+	_ "github.com/mwiget/kindbnkctl/internal/scenarios/bgppeer"
+	_ "github.com/mwiget/kindbnkctl/internal/scenarios/httproutee2e"
 )
 
 func newScenarioCmd() *cobra.Command {
@@ -51,9 +53,13 @@ func newScenarioListCmd() *cobra.Command {
 			out := cmd.OutOrStdout()
 			items := scenarios.All()
 			sort.Slice(items, func(i, j int) bool { return items[i].Name() < items[j].Name() })
-			fmt.Fprintf(out, "%-25s %-7s %s\n", "NAME", "RATING", "TITLE")
+			fmt.Fprintf(out, "%-22s %-7s %-22s %s\n", "NAME", "RATING", "DEPENDS-ON", "TITLE")
 			for _, s := range items {
-				fmt.Fprintf(out, "%-25s %-7s %s\n", s.Name(), s.Rating(), s.Title())
+				deps := strings.Join(s.Dependencies(), ",")
+				if deps == "" {
+					deps = "-"
+				}
+				fmt.Fprintf(out, "%-22s %-7s %-22s %s\n", s.Name(), s.Rating(), deps, s.Title())
 			}
 			if len(items) == 0 {
 				fmt.Fprintln(out, "(no scenarios registered)")
@@ -64,9 +70,10 @@ func newScenarioListCmd() *cobra.Command {
 }
 
 type scenarioRunFlags struct {
-	pocDir string
-	all    bool
-	dryRun bool
+	pocDir  string
+	all     bool
+	dryRun  bool
+	verbose bool
 }
 
 func newScenarioRunCmd() *cobra.Command {
@@ -88,6 +95,7 @@ nothing is applied — handy to inspect what would land.`,
 	cmd.Flags().StringVar(&f.pocDir, "poc", "", "PoC repo path (default: current directory)")
 	cmd.Flags().BoolVar(&f.all, "all", false, "Run every green-rated scenario in registration order")
 	cmd.Flags().BoolVar(&f.dryRun, "dry-run", false, "Render manifests but apply nothing")
+	cmd.Flags().BoolVar(&f.verbose, "verbose", false, "Surface per-assertion lines + Details to stdout (always in the JSON report)")
 	return cmd
 }
 
@@ -121,8 +129,9 @@ func runScenarios(ctx context.Context, out io.Writer, args []string, f *scenario
 			HelmHome:       repo + "/artifacts/helm-home",
 			Out:            prefixWriter{w: out, prefix: "      | "},
 		},
-		Out:    out,
-		DryRun: f.dryRun,
+		Out:     out,
+		DryRun:  f.dryRun,
+		Verbose: f.verbose,
 	}
 
 	var todo []scenarios.Scenario

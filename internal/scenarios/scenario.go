@@ -35,13 +35,38 @@ const (
 	Red   Rating = "red"
 )
 
+// Assertion is one check inside Verify. Rich enough that the report
+// reader can see exactly what passed / failed without running the
+// scenario again. Want: short human-readable Description, the actual
+// value observed (Got, optional), the OK flag. Failed assertions
+// don't short-circuit Verify by themselves — the scenario decides
+// when to bail.
+type Assertion struct {
+	Description string `json:"description"`
+	OK          bool   `json:"ok"`
+	Got         string `json:"got,omitempty"`
+}
+
 // Result is what each scenario returns from Apply+Verify. Status mirrors
 // the e2e phase report vocabulary so the rollup CLI can use one renderer.
 type Result struct {
-	Status   string `json:"status"` // ok | failed | skipped | dry-run
-	Summary  string `json:"summary"`
-	Details  string `json:"details,omitempty"`
-	Manifest string `json:"manifest_path,omitempty"`
+	Status     string      `json:"status"` // ok | failed | skipped | dry-run
+	Summary    string      `json:"summary"`
+	Details    string      `json:"details,omitempty"`
+	Assertions []Assertion `json:"assertions,omitempty"`
+	Manifest   string      `json:"manifest_path,omitempty"`
+}
+
+// AllPassed returns true when every assertion in r is OK. Empty
+// assertion list returns true — Summary alone suffices for trivial
+// scenarios.
+func (r Result) AllPassed() bool {
+	for _, a := range r.Assertions {
+		if !a.OK {
+			return false
+		}
+	}
+	return true
 }
 
 // Context is the small bundle every scenario needs at runtime.
@@ -60,6 +85,9 @@ type Context struct {
 	Out io.Writer
 	// DryRun: render manifests but apply nothing.
 	DryRun bool
+	// Verbose: surface per-assertion lines + Result.Details to Out.
+	// JSON report always carries them regardless.
+	Verbose bool
 }
 
 // Scenario is the interface every test case implements. Methods are
@@ -74,6 +102,13 @@ type Scenario interface {
 	Rating() Rating
 	// Description is one paragraph explaining what's tested + what isn't.
 	Description() string
+	// Dependencies lists other scenario names this one logically
+	// relies on (e.g. "bgp-peer-frr" if we expect BGP to already
+	// work). The runner does NOT auto-chain — this is informational,
+	// surfaced in `scenario list`. Each scenario stays self-contained
+	// in its Apply, but the hint tells the operator the test order
+	// that surfaces failures fastest.
+	Dependencies() []string
 
 	// Manifests renders all manifest files into <PoCDir>/artifacts/
 	// scenarios/<Name>/ and returns the on-disk paths. Pure render —

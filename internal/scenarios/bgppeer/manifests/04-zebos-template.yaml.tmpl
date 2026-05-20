@@ -1,0 +1,39 @@
+# Patches the existing f5-tmm-dynamic-routing-template ConfigMap with
+# a ZeBOS BGP config that peers with the FRR pod at runtime. The
+# {{.FRRPodIP}} placeholder is filled by the scenario's Apply step
+# after the FRR pod gets a Calico IP. ZeBOS reads %%POD_IP%% itself
+# at TMM startup so we don't have to know TMM's IP at apply time.
+#
+# `network 203.0.113.100/32` is what we ultimately want learned on
+# the FRR side. It's advertised even without a matching kernel route,
+# which suits the static-gateway-address shape kindbnkctl uses.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: f5-tmm-dynamic-routing-template
+  namespace: default
+data:
+  ZebOS.conf: |
+    !
+    ! Static route so ZeBOS uses eth0 (Calico) to reach the FRR pod
+    ! rather than the default route via the tmm virtio interface. On
+    ! kind without Multus, TMM's default route is `dev tmm` and the
+    ! Calico /26 subnet has no specific entry — without this route
+    ! ZeBOS's BGP TCP SYNs get sent into the TMM data plane where
+    ! nothing answers.
+    ip route {{.CalicoSubnet}} eth0
+    !
+    router bgp 65000
+      bgp router-id %%POD_IP%%
+      bgp log-neighbor-changes
+      no bgp default ipv4-unicast
+      !
+      neighbor {{.FRRPodIP}} remote-as 65001
+      neighbor {{.FRRPodIP}} update-source eth0
+      !
+      address-family ipv4
+        network 203.0.113.100/32
+        neighbor {{.FRRPodIP}} activate
+        neighbor {{.FRRPodIP}} soft-reconfiguration inbound
+      exit-address-family
+    !

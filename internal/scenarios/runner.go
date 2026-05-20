@@ -67,8 +67,21 @@ func Run(ctx *Context, s Scenario) Result {
 
 func finalize(ctx *Context, s Scenario, started time.Time, r Result) Result {
 	writeReport(ctx.PoCDir, s.Name(), r, started)
+	if ctx.Verbose && len(r.Assertions) > 0 {
+		for _, a := range r.Assertions {
+			mark := "✓"
+			if !a.OK {
+				mark = "✗"
+			}
+			line := fmt.Sprintf("      %s %s", mark, a.Description)
+			if a.Got != "" {
+				line += "  (" + a.Got + ")"
+			}
+			fmt.Fprintln(ctx.Out, line)
+		}
+	}
 	fmt.Fprintf(ctx.Out, "      %s — %s\n", strings.ToUpper(r.Status), r.Summary)
-	if r.Details != "" {
+	if r.Details != "" && (ctx.Verbose || r.Status == "failed") {
 		fmt.Fprintln(ctx.Out, "      "+r.Details)
 	}
 	return r
