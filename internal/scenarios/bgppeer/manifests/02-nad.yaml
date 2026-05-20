@@ -1,0 +1,60 @@
+# NetworkAttachmentDefinition for the BGP path between TMM and FRR.
+#
+# Uses the Linux `bridge` CNI (not macvlan/ipvlan): a software bridge
+# `br-bnk-bgp` is created on the kind node, each attached pod gets a
+# veth peer into it, and IPAM hands out a /24 from 192.168.99.0/24.
+#
+# Bridge CNI is the macOS-friendly pick — works without promiscuous
+# mode on a parent interface, which Docker Desktop's network stack
+# doesn't reliably support. The trade-off is that the bridge is local
+# to each kind node, so both peering pods (TMM + FRR) must schedule
+# on the same node — the FRR Deployment uses podAffinity to f5-tmm
+# nodes to enforce this.
+#
+# The NAD is created in both `default` (where TMM runs) and `scn-bgp`
+# (where FRR runs). Multus requires the NAD to exist in the same
+# namespace as the consuming pod.
+---
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: bnk-bgp
+  namespace: default
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.1",
+      "type": "bridge",
+      "bridge": "br-bnk-bgp",
+      "ipMasq": false,
+      "isGateway": false,
+      "hairpinMode": true,
+      "ipam": {
+        "type": "host-local",
+        "subnet": "192.168.99.0/24",
+        "rangeStart": "192.168.99.20",
+        "rangeEnd": "192.168.99.250"
+      }
+    }
+---
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: bnk-bgp
+  namespace: scn-bgp
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.1",
+      "type": "bridge",
+      "bridge": "br-bnk-bgp",
+      "ipMasq": false,
+      "isGateway": false,
+      "hairpinMode": true,
+      "ipam": {
+        "type": "host-local",
+        "subnet": "192.168.99.0/24",
+        "rangeStart": "192.168.99.20",
+        "rangeEnd": "192.168.99.250"
+      }
+    }

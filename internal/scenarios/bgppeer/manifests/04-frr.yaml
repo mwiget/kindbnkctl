@@ -1,6 +1,8 @@
-# FRR BGP-peer pod. NET_ADMIN + NET_RAW so bgpd can open AF_NETLINK
-# sockets and program kernel routes. Image pin is a stable upstream
-# tag; bumping it is a deliberate change.
+# FRR BGP-peer pod, attached to the bnk-bgp bridge NAD on a static
+# 192.168.99.11 IP so TMM's ZeBOS config can reference it
+# deterministically across restarts. PodAffinity to f5-tmm-labelled
+# nodes forces co-location on smoke-worker, which is required because
+# bridge-CNI NADs are per-node (no cross-node L2).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,23 +16,30 @@ spec:
   template:
     metadata:
       labels: {app: scn-frr}
+      annotations:
+        # Attach the bnk-bgp NAD as net1. host-local IPAM hands out
+        # the next free IP from 192.168.99.20-250; first attacher
+        # gets .20. The scenario discovers FRR's actual IP at
+        # runtime and renders that into ZeBOS.conf for TMM's
+        # `neighbor` setting.
+        k8s.v1.cni.cncf.io/networks: |
+          [{"name":"bnk-bgp","interface":"net1"}]
     spec:
-      # Avoid landing on the TMM-dedicated worker so FRR doesn't fight
-      # for CPU during heavy gateway loads. Control-plane node is
-      # schedulable in kindbnkctl's two-node setup.
+      # Pin to the same node TMM runs on (smoke-worker — labelled
+      # app=f5-tmm by `kindbnkctl cluster up`). bridge-CNI NADs are
+      # per-node, so co-location is required for L2. nodeAffinity
+      # (not podAffinity) because we co-locate on the NODE label,
+      # not on a pod label — TMM may be unscheduled when FRR comes
+      # up.
       affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-          - weight: 100
-            podAffinityTerm:
-              labelSelector:
-                matchLabels: {app: f5-tmm}
-              topologyKey: kubernetes.io/hostname
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: app
+                operator: In
+                values: [f5-tmm]
       initContainers:
-      # The FRR image expects /etc/frr to be writable and to contain
-      # daemons + frr.conf + vtysh.conf with mode 640 / owner frr:frr.
-      # The ConfigMap mount lands as root:root mode 644 — copy it
-      # into /etc/frr and chown.
       - name: bootstrap
         image: quay.io/frrouting/frr:9.1.0
         command:

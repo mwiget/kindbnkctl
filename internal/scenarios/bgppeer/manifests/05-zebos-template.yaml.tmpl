@@ -1,0 +1,37 @@
+# Patches the cluster-wide f5-tmm-dynamic-routing-template ConfigMap
+# with a ZeBOS BGP config that peers with FRR over the Multus NAD
+# interface. Multus assigns this interface as net1 (default naming);
+# ZeBOS sources BGP from net1 so packets bypass TMM's eth0 hook
+# entirely.
+#
+# FRR's NAD IP is the fixed 192.168.99.11 from the FRR Deployment's
+# annotation. TMM's NAD IP is dynamic (assigned by host-local IPAM
+# inside the .20-.250 range) and isn't needed in the ZeBOS config
+# because FRR uses `bgp listen range` to accept any incoming peer.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: f5-tmm-dynamic-routing-template
+  namespace: default
+data:
+  ZebOS.conf: |
+    router bgp 65000
+      bgp router-id %%POD_IP%%
+      bgp log-neighbor-changes
+      bgp graceful-restart restart-time 120
+      no bgp default ipv4-unicast
+      ! Redistribute kernel routes (incl. the connected 192.168.99.0/24
+      ! on net1 and any /32 the http-routing scenario installs for the
+      ! Gateway IP). Must appear at the router-bgp scope, not inside
+      ! address-family — F5 ZeBOS silently drops it from
+      ! `address-family ipv4` and there's no visible error.
+      redistribute kernel
+      !
+      neighbor {{.FRRNetIP}} remote-as 65001
+      neighbor {{.FRRNetIP}} update-source net1
+      !
+      address-family ipv4
+        neighbor {{.FRRNetIP}} activate
+        neighbor {{.FRRNetIP}} soft-reconfiguration inbound
+      exit-address-family
+    !

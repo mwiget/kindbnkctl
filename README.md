@@ -206,7 +206,7 @@ Scoring of the [F5 BNK how-tos index](https://clouddocs.f5.com/bigip-next-for-ku
 |---|---|---|---|
 | 1 | Restrict access to sensitive data | 🟢 green | not yet implemented |
 | 2 | Components needing cluster-wide access | 🟢 green | not yet implemented |
-| **3** | **Set up dynamic routing with BGP** | **🟡 amber** | **implemented (`bgp-peer-frr`)** |
+| **3** | **Set up dynamic routing with BGP** | **🟢 green** | **implemented (`bgp-peer-frr`)** |
 | 4 | Set up core file collection | 🟡 amber | not yet implemented |
 | 5 | Configure DOCA Offloads on DPU | 🔴 red | needs DPU |
 | 6 | Configure Token Counting and Enforcement | 🟢 green | not yet implemented |
@@ -217,30 +217,22 @@ Scoring of the [F5 BNK how-tos index](https://clouddocs.f5.com/bigip-next-for-ku
 | 11 | Static Active-Standby Interface Bonding | 🔴 red | needs real NICs |
 | 12 | TMOS DNS Service Integration with CIS | 🟡 amber | not yet implemented |
 
-Both implemented scenarios verify control-plane reconciliation
-fully; their data-plane end states are `[bonus]` assertions in
-the report and don't fail the scenario.
+`bgp-peer-frr` (green) deploys a real BGP session between an FRR
+pod and TMM's ZeBOS daemon, peered over a Multus
+NetworkAttachmentDefinition (bridge CNI) on a per-node Linux
+bridge. The NAD path bypasses TMM's eth0 TCP hook entirely —
+BGP rides net1 in both pods, exchanging prefixes via the bridge.
+Six assertions pass: Multus DaemonSet Ready, both pods have net1
+in the 192.168.99.0/24 NAD range, ZeBOS sees the neighbor, BGP
+session Established, and FRR's BGP table has at least one prefix
+learned from TMM (via `redistribute kernel`).
 
-`bgp-peer-frr` does substantial real BGP plumbing — not just CR
-applies. It deploys FRR as a BGP peer, configures TMM's ZeBOS
-daemon through the `f5-tmm-dynamic-routing-template` ConfigMap,
-writes the required `/config/zebos/rd0/passwd.conf` into the
-TMM pod via `kubectl exec`, and ships a privileged DaemonSet
-that re-injects Calico's standard fake-gateway kernel routes
-(`169.254.1.1` + FRR pod IP) into the TMM pod's netns on every
-restart. After all of that, ZeBOS bgpd is configured, listening,
-and trying to peer.
-
-What still blocks `[bonus] BGP Established` is architectural,
-not a missing knob: TMM in demoMode intercepts TCP on eth0 and
-routes it through its own data plane before it reaches the
-0.0.0.0:179 listener that ZeBOS bgpd is bound to. ICMP works
-(`ping` succeeds), `curl http://<tmm>:179` times out. In
-production BNK the BGP traffic flows over a Multus NAD interface
-that bypasses this hook — kind/demoMode has no equivalent. A
-follow-up scenario adding a Multus NAD (or patching TMM's
-iptables filter to exempt port 179) would lift both scenarios
-to green.
+`http-routing-e2e` (still amber) — its `[bonus]` 5×curl
+assertion remains deferred. It uses the same eth0 path as
+the old http-routing scenario, which IS still hooked by TMM's
+data plane. A follow-up scenario that wires the Gateway listener
+through the NAD path (or that runs a client pod with a static
+route via the FRR pod) would lift this one to green.
 
 ## Testing
 

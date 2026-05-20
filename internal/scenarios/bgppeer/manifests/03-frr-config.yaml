@@ -1,37 +1,9 @@
-# FRR config for the BGP peer pod. Uses `bgp listen range` so we
-# accept incoming BGP sessions from any Calico pod IP — sidesteps the
-# chicken-and-egg of needing TMM's pod IP at apply time. The `daemons`
-# file is the standard upstream shape; bgpd flagged on, everything
-# else off.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: frr-config
   namespace: scn-bgp
 data:
-  daemons: |
-    bgpd=yes
-    ospfd=no
-    ospf6d=no
-    ripd=no
-    ripngd=no
-    isisd=no
-    pimd=no
-    ldpd=no
-    nhrpd=no
-    eigrpd=no
-    babeld=no
-    sharpd=no
-    pbrd=no
-    bfdd=no
-    fabricd=no
-    vrrpd=no
-    pathd=no
-    vtysh_enable=yes
-    zebra_options="  -A 127.0.0.1 -s 90000000"
-    bgpd_options="  -A 127.0.0.1"
-  vtysh.conf: |
-    service integrated-vtysh-config
   daemons: |
     bgpd=yes
     ospfd=no
@@ -63,13 +35,19 @@ data:
     ip forwarding
     !
     router bgp 65001
-     bgp router-id 1.1.1.1
+     bgp router-id 192.168.99.20
      no bgp ebgp-requires-policy
      no bgp default ipv4-unicast
      bgp log-neighbor-changes
+     ! Peer-group + remote-as MUST be declared before the
+     ! listen-range references them — FRR silently drops the
+     ! listen-range line otherwise.
      neighbor from-tmm peer-group
      neighbor from-tmm remote-as 65000
-     bgp listen range 10.244.0.0/16 peer-group from-tmm
+     ! Accept incoming BGP from any peer on the bnk-bgp bridge.
+     ! TMM's NAD IP is assigned by host-local IPAM and varies
+     ! across restarts, so listen-range is the robust shape.
+     bgp listen range 192.168.99.0/24 peer-group from-tmm
      !
      address-family ipv4 unicast
       neighbor from-tmm activate
