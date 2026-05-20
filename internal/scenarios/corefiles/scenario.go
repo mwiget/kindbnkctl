@@ -211,9 +211,30 @@ func (s *scenario) Verify(ctx *scenarios.Context) scenarios.Result {
 
 func (s *scenario) Cleanup(ctx *scenarios.Context) error {
 	r := ctx.Runner
+	// Disable the feature on CNEInstance — FLO garbage-collects
+	// the CoreMond CR + DaemonSet on its own.
 	_ = r.Kubectl(ctx.Ctx, "patch", "cneinstance", "bnk-instance",
 		"-n", "default", "--type=merge",
 		"-p", `{"spec":{"coreCollection":{"enabled":false}}}`)
+
+	// Known BNK 2.3 FLO bug: after this toggle, FLO sends UPDATE
+	// requests for every managed component CR (F5Tmm, DSSM, Cwc,
+	// CSRC, IPAMController, Observer, etc.) with
+	// `spec.crashagentConfig: null`. The API server rejects every
+	// one with
+	//   "spec.crashagentConfig: Invalid value: 'null':
+	//    spec.crashagentConfig in body must be of type object"
+	// — measured ~900 validation errors over the 5 minutes after a
+	// clean. The errors are noisy but cosmetic: the F5Tmm/Pod
+	// template reconcile chain still completes (verified
+	// empirically — bgp-peer-frr passes consistently right after
+	// this cleanup with no intervention). Restarting the FLO
+	// operator pod doesn't help either; the bug re-triggers
+	// immediately as FLO re-renders the same null-bearing spec.
+	// Workaround would have to live in FLO itself.
+	//
+	// Restart TMM to drop the kernel-cores / f5-core-store /
+	// tmm-core volumes from its pod spec.
 	_ = r.Kubectl(ctx.Ctx, "-n", "default", "rollout", "restart",
 		"deployment/f5-tmm")
 	return nil
