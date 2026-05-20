@@ -229,9 +229,9 @@ backends don't need to be on the NAD themselves.
                            |  +========================================+     |
                            |  ||  br-bnk-bgp   Linux bridge in node    ||    |
                            |  ||  netns, created by the bridge-CNI     ||    |
-                           |  ||  plugin via NetworkAttachmentDefinition||   |
-                           |  ||  name=bnk-bgp ; host-local IPAM       ||    |
-                           |  ||  192.168.99.20-250 on /24             ||    |
+                           |  ||  plugin via NAD name=bnk-bgp ;        ||    |
+                           |  ||  host-local IPAM 192.168.99.20-250    ||    |
+                           |  ||  on /24                               ||    |
                            |  +========================================+     |
                            |                                                 |
                            |  +-------------------------------------------+  |

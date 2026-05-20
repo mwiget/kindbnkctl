@@ -358,7 +358,7 @@ func runDeployCNE(ctx context.Context, out io.Writer, f *deployCNEFlags) error {
 	fmt.Fprintf(out, "PoC:     %s\nCluster: %s\n\n", p.Metadata.Name, kubeconfig)
 
 	// 1. CNEInstance.
-	fmt.Fprintln(out, "[1/3] Rendering + applying CNEInstance (demoMode=true) ...")
+	fmt.Fprintln(out, "[1/4] Rendering + applying CNEInstance (demoMode=true) ...")
 	cne, err := deploy.RenderCNEInstance(p)
 	if err != nil {
 		return err
@@ -377,7 +377,7 @@ func runDeployCNE(ctx context.Context, out io.Writer, f *deployCNEFlags) error {
 	// applied — empirically, it doesn't exist until then. Wait for
 	// both --for=create (CRD object exists) and condition=Established
 	// (apiserver has bound the schema) before applying.
-	fmt.Fprintln(out, "[2/3] Waiting for license CRD, then applying License CR ...")
+	fmt.Fprintln(out, "[2/4] Waiting for license CRD, then applying License CR ...")
 	if err := r.Kubectl(ctx, "wait", "--for=create",
 		"crd/licenses.k8s.f5net.com", "--timeout=3m"); err != nil {
 		return fmt.Errorf("license CRD never created (FLO did not reconcile?): %w", err)
@@ -398,7 +398,7 @@ func runDeployCNE(ctx context.Context, out io.Writer, f *deployCNEFlags) error {
 	}
 
 	// 3. Wait for License Active.
-	fmt.Fprintln(out, "[3/3] Waiting for License Active ...")
+	fmt.Fprintln(out, "[3/4] Waiting for License Active ...")
 	if err := deploy.WaitForLicenseActive(ctx, r,
 		deploy.LicenseCRName, deploy.SharedComponentNamespace,
 		20*time.Minute); err != nil {
@@ -409,6 +409,31 @@ func runDeployCNE(ctx context.Context, out io.Writer, f *deployCNEFlags) error {
 		}
 	} else {
 		fmt.Fprintln(out, "      License Active.")
+	}
+
+	// 4. Patch f5-tmm Deployment strategy to Recreate.
+	// FLO ships the Deployment with RollingUpdate (maxSurge=25%,
+	// maxUnavailable=25%) which on a 1-replica deployment runs two
+	// pods during rollover — wasteful on a kind worker and prone to
+	// wedging Multus when veth churn is high. We have no HA goal
+	// here, so Recreate is strictly better: terminate the old pod,
+	// then create the new one. FLO does not reconcile this back
+	// after the patch (verified via CNEInstance + F5Tmm reconcile
+	// in BNK 2.3), and the CNEInstance/F5Tmm schema doesn't expose
+	// a strategy knob at any level, so a direct Deployment patch
+	// is the only way to set it.
+	fmt.Fprintln(out, "[4/4] Patching f5-tmm Deployment strategy=Recreate ...")
+	if err := r.Kubectl(ctx, "-n", "default", "patch", "deployment", "f5-tmm",
+		"--type=json",
+		"-p", `[{"op":"remove","path":"/spec/strategy/rollingUpdate"},`+
+			`{"op":"replace","path":"/spec/strategy/type","value":"Recreate"}]`); err != nil {
+		// Best-effort: log a warning rather than failing the phase.
+		// If the Deployment doesn't exist yet (rare race) or the
+		// strategy is already Recreate (idempotency), this just
+		// makes noise.
+		fmt.Fprintf(out, "      WARN: strategy patch failed: %v (continuing — scenarios still work, just slower TMM rollovers)\n", err)
+	} else {
+		fmt.Fprintln(out, "      strategy=Recreate")
 	}
 
 	p.Status.Deploy = "ready"
