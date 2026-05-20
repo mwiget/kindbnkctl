@@ -1,0 +1,22 @@
+# Gateway with a single TCP listener on port 8000 (matching the F5
+# docs' example port). The Gateway address is hardcoded in
+# spec.addresses; the F5BnkGateway IP-pool CR ratifies the /32.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: scn-proxy-gateway
+  namespace: scn-proxy
+spec:
+  gatewayClassName: bnk-gatewayclass
+  addresses:
+  - type: IPAddress
+    value: 203.0.113.102
+  listeners:
+  - name: tcp-listener
+    protocol: TCP
+    port: 8000
+    allowedRoutes:
+      namespaces: {from: Same}
+      kinds:
+      - kind: L4Route
+        group: gateway.k8s.f5net.com

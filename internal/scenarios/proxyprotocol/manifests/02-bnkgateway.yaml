@@ -1,0 +1,15 @@
+# F5BnkGateway IP pool — separate /32 range from .100 (http-routing-e2e)
+# and .101 (external-resource-pool) so Gateway addresses don't collide.
+apiVersion: k8s.f5net.com/v1
+kind: F5BnkGateway
+metadata:
+  name: kindbnkctl-proxy
+  namespace: scn-proxy
+spec:
+  ingressConfig:
+    defaultListenerNetworks:
+    - name: external
+      ipv4BaseCidr: 203.0.113.0/24
+      startAddress: 203.0.113.102
+      endAddress: 203.0.113.200
+      provider: f5-ip-provider

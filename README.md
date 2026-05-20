@@ -208,23 +208,24 @@ Scoring of the [F5 BNK how-tos index](https://clouddocs.f5.com/bigip-next-for-ku
 | 2 | Components needing cluster-wide access | — | not yet implemented |
 | **3** | **Set up dynamic routing with BGP** | **🟢 green** | **implemented (`bgp-peer-frr`)** |
 | 4 | Set up core file collection | — | not yet implemented |
-| 5 | Configure DOCA Offloads on DPU | 🔴 red | needs DPU |
 | 6 | Configure Token Counting and Enforcement | — | not yet implemented |
 | 7 | Configure AI Traffic Optimization Features | — | not yet implemented |
 | **8** | **HTTP traffic steering with Gateway API HTTPRoute** | **🟢 green** | **implemented (`http-routing-e2e`)** |
-| 9 | Proxy Protocol iRule support for L4 routes | — | not yet implemented |
+| **9** | **Proxy Protocol iRule support for L4 routes** | **🟡 amber** | **implemented (`proxy-protocol-l4`)** |
 | **10** | **Load Balance Traffic to External Resources** | **🟢 green** | **implemented (`external-resource-pool`)** |
-| 11 | Static Active-Standby Interface Bonding | 🔴 red | needs real NICs |
 | 12 | TMOS DNS Service Integration with CIS | — | not yet implemented |
 
-Ratings are assigned only after a scenario is built and run —
-we learned the hard way that pre-scoring (the original
-optimistic green/amber/red split) was unreliable. Implemented
-scenarios that pan out land as 🟢 green; ones that hit a real
-architectural barrier on kind+demoMode get 🟡 amber with the
-gap documented in the scenario's `Description()`.
-Confirmed-impossible-on-kind stays 🔴 red (needing DPU silicon
-or physical NICs).
+How-tos **#5 (DOCA Offloads on DPU)** and **#11 (Static
+Active-Standby Interface Bonding)** are omitted from the table:
+both require physical hardware (DPU silicon and bondable NICs)
+that kind cannot provide. They remain valid BNK features; they
+just aren't testable in this shape.
+
+Ratings are assigned only after a scenario is built and run.
+Implemented scenarios that pan out land as 🟢 green; ones that
+hit a real architectural barrier on kind+demoMode get 🟡 amber
+with the gap documented in the scenario's `Description()`.
+Empty cell = scenario not yet built.
 
 `bgp-peer-frr` (green) deploys a real BGP session between an FRR
 pod and TMM's ZeBOS daemon, peered over a Multus
@@ -254,6 +255,31 @@ kubectl -n scn-bgp exec deploy/scn-frr -c frr -- \
   curl -sS -H 'Host: kindbnkctl.local' http://203.0.113.100/
 # → kindbnkctl-scenario-httproute-e2e-OK
 ```
+
+`external-resource-pool` (green) — demonstrates how-to #10 (load
+balance to non-Service backends) via the BNK `Pool` CR. HTTPRoute
+`backendRefs` points at a `Pool {group:k8s.f5net.com, kind:Pool}`
+instead of a Service; `Pool.spec.members` lists endpoints by
+IP+port. On kind, the "external" backend is an nginx pod attached
+to the bnk-bgp NAD (same bridge TMM uses), with its NAD IP
+auto-discovered and rendered into the Pool CR. Gateway address
+is 203.0.113.101 to avoid collision with `http-routing-e2e`.
+
+`proxy-protocol-l4` (amber) — implements how-to #9 (PROXY-protocol
+iRule on an L4 route). Six control-plane assertions pass: the
+new BNK CRs reconcile correctly (`F5BigCneIrule` Programmed,
+`L4Route` Accepted, `BNKNetPolicy` ResolvedRefs True), TMM
+proxies the TCP traffic, FRR learns the Gateway IP via BGP. The
+data-plane PROXY-header assertion (`[bonus]`) fails on this BNK
+2.3 build — TMM accepts the L4 connection and forwards it, but
+the iRule's `TCP::respond` does not actually inject the PROXY
+v1 header before the server-side payload, so nginx's
+`listen 80 proxy_protocol` rejects the connection with
+"broken header". The scenario remains useful as a complete
+demonstration of the CR wiring; lifting it to green would
+require figuring out whether BNK 2.3's iRule TCL subset
+supports `TCP::respond` on L4Route flows or whether a different
+iRule shape is needed.
 
 ## Testing
 

@@ -1,0 +1,16 @@
+# L4Route binds the Gateway's TCP listener to the backend Service.
+# Same shape as HTTPRoute but for raw TCP/UDP/SCTP.
+apiVersion: gateway.k8s.f5net.com/v1
+kind: L4Route
+metadata:
+  name: scn-proxy-route
+  namespace: scn-proxy
+spec:
+  parentRefs:
+  - name: scn-proxy-gateway
+    sectionName: tcp-listener
+  protocol: TCP
+  rules:
+  - backendRefs:
+    - name: pp-backend
+      port: 80

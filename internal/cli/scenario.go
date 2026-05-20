@@ -19,6 +19,7 @@ import (
 	_ "github.com/mwiget/kindbnkctl/internal/scenarios/bgppeer"
 	_ "github.com/mwiget/kindbnkctl/internal/scenarios/extrespool"
 	_ "github.com/mwiget/kindbnkctl/internal/scenarios/httproutee2e"
+	_ "github.com/mwiget/kindbnkctl/internal/scenarios/proxyprotocol"
 )
 
 func newScenarioCmd() *cobra.Command {

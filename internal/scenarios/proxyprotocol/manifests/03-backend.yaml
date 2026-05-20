@@ -1,0 +1,65 @@
+# Backend nginx with `listen 80 proxy_protocol` — accepts the PROXY v1
+# header the iRule prepends, parses it, exposes the original client
+# address as $proxy_protocol_addr. The response body echoes that
+# address so the scenario can assert PROXY protocol is end-to-end.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-pp-conf
+  namespace: scn-proxy
+data:
+  default.conf: |
+    server {
+        listen 80 proxy_protocol;
+        # The iRule sends PROXY TCP4 lines; this server replies with
+        # the parsed source address so the test client can confirm.
+        location / {
+            add_header Content-Type text/plain always;
+            return 200 "kindbnkctl-scenario-proxy-protocol-OK proxy_addr=$proxy_protocol_addr\n";
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pp-backend
+  namespace: scn-proxy
+  labels: {app: pp-backend}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: pp-backend}
+  template:
+    metadata:
+      labels: {app: pp-backend}
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.27-alpine
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - {name: conf, mountPath: /etc/nginx/conf.d}
+        readinessProbe:
+          # The proxy_protocol-listen socket refuses regular HTTP
+          # handshakes, so don't use httpGet — TCP-level probe
+          # confirms the listener is up.
+          tcpSocket: {port: 80}
+          initialDelaySeconds: 1
+          periodSeconds: 2
+        resources:
+          requests: {cpu: 10m, memory: 16Mi}
+          limits:   {cpu: 100m, memory: 64Mi}
+      volumes:
+      - name: conf
+        configMap: {name: nginx-pp-conf}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pp-backend
+  namespace: scn-proxy
+spec:
+  selector: {app: pp-backend}
+  ports:
+  - {name: http, port: 80, targetPort: 80, protocol: TCP}
