@@ -118,6 +118,37 @@ injection primitive at all**. The validator accepts `TCP::respond`
 but its runtime is a stub. Alternative names (`TCP::send`,
 `TCP::write`) don't exist in the dispatch table.
 
+### Re-investigation 2026-05-21 — canonical PROXY v2 initiator also fails
+
+Ran the verbatim [F5 DevCentral PROXY Protocol v2 Initiator](https://community.f5.com/kb/codeshare/proxy-protocol-initiator/280541)
+iRule (custom `proc decode` / `proc encode` plus the standard
+CLIENT_ACCEPTED + SERVER_CONNECTED handlers ending in
+`eval {${PROTO}::respond $proxy_hdr_v2}`). The validator accepted
+it, FLO pushed it to TMM (`Programmed=True`), and TMM logs show
+the iRule firing all the way through:
+
+```
+Rule scn-proxy-pp-prepend <CLIENT_ACCEPTED>:
+  PP_V2_IRULE: encoded 28 bytes for client 192.168.99.20:34582
+Rule scn-proxy-pp-prepend <SERVER_CONNECTED>:
+  PP_V2_IRULE: SERVER_CONNECTED firing, header_len=28
+Rule scn-proxy-pp-prepend <SERVER_CONNECTED>:
+  PP_V2_IRULE: TCP::respond returned
+```
+
+`TCP::respond` accepts the call, returns cleanly (no validator
+error, no runtime error), but **does not inject bytes** onto the
+server-side TCP stream. nginx still receives raw `GET / HTTP/1.1`
+as the first bytes and rejects with "broken header" — identical
+to the simpler v1 stub. This conclusively shows that the PROXY
+v1-text vs v2-binary distinction is irrelevant: both shapes rely
+on `TCP::respond`, which is the broken primitive at the
+bigproto-profile runtime.
+
+We keep the simpler v1 stub in the scenario because it's the
+canonical shape from the F5 how-to and is easier to read; the
+result is identical to the canonical v2 initiator either way.
+
 ### Re-investigation 2026-05-21 — direct gRPC-trace evidence
 
 Read the actual gRPC config FLO pushes to TMM for our scenario
