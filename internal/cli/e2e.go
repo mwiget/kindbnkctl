@@ -598,7 +598,7 @@ func renderRunMarkdown(r runReport) string {
 		}
 		lg := "—"
 		if ph.LogPath != "" {
-			lg = "`" + ph.LogPath + "`"
+			lg = fmt.Sprintf("[`%s`](%s)", ph.LogPath, ph.LogPath)
 		}
 		fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |\n",
 			ph.Index, ph.Phase, ph.Status, dur, lg)

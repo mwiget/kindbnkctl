@@ -1,0 +1,48 @@
+PoC:     smoke
+Cluster: /tmp/kindbnkctl-smoke/artifacts/kubeconfig
+FAR:     /tmp/kindbnkctl-smoke/keys/f5-far-auth-key.tgz
+
+[1/5] Tools preflight ...
+      ok
+[2/5] Extracting FAR dockerconfigjson ...
+      ok — 4313 bytes
+[3/5] Ensuring namespaces ...
+      | namespace/f5-operators created
+      | namespace/f5-cne-core created
+      ok
+[4/5] Applying far-secret in each namespace ...
+      | secret/far-secret created
+      | secret/far-secret created
+      | secret/far-secret created
+      ok
+[5/5] Installing cert-manager ...
+      | Release "cert-manager" does not exist. Installing it now.
+      | NAME: cert-manager
+      | LAST DEPLOYED: Thu May 21 11:48:41 2026
+      | NAMESPACE: cert-manager
+      | STATUS: deployed
+      | REVISION: 1
+      | DESCRIPTION: Install complete
+      | TEST SUITE: None
+      | NOTES:
+      | ⚠️  WARNING: `installCRDs` is deprecated, use `crds.enabled` instead.
+      | cert-manager v1.16.2 has been deployed successfully!
+      | 
+      | In order to begin issuing certificates, you will need to set up a ClusterIssuer
+      | or Issuer resource (for example, by creating a 'letsencrypt-staging' issuer).
+      | 
+      | More information on the different types of issuers and how to configure them
+      | can be found in our documentation:
+      | 
+      | https://cert-manager.io/docs/configuration/
+      | 
+      | For information on how to configure cert-manager to automatically provision
+      | Certificates for Ingress resources, take a look at the `ingress-shim`
+      | documentation:
+      | 
+      | https://cert-manager.io/docs/usage/ingress/
+      | deployment.apps/cert-manager-webhook condition met
+      cert-manager Ready.
+      poc.yaml updated
+
+DONE.  Next: `kindbnkctl deploy flo`.

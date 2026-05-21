@@ -530,7 +530,8 @@ kindbnkctl e2e \
 ```
 
 Output lands at `<pocdir>/reports/<stamp>/run-<pocname>-<stamp>.md`
-(plus the JSON twin and per-scenario JSONs under `scenarios/`).
+(plus the JSON twin, per-phase logs under `logs/`, and
+per-scenario JSONs under `scenarios/`).
 Expect ~15 minutes total on a warm Docker cache: ~6 minutes deploy
 (validate → cluster-up → deploy-prereqs/flo/cne) plus ~8 minutes
 running the eight green scenarios in topo-sorted dependency order.
