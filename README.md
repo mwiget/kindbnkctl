@@ -6,6 +6,7 @@
 ![Go](https://img.shields.io/github/go-mod/go-version/mwiget/kindbnkctl)
 ![License](https://img.shields.io/github/license/mwiget/kindbnkctl)
 ![Last commit](https://img.shields.io/github/last-commit/mwiget/kindbnkctl)
+[![Release](https://img.shields.io/github/v/release/mwiget/kindbnkctl?label=download)](https://github.com/mwiget/kindbnkctl/releases/latest)
 
 Single-binary CLI that deploys F5 BIG-IP Next for Kubernetes (BNK) 2.3.0
 on a two-node [kind](https://kind.sigs.k8s.io/) cluster — one combined
@@ -144,6 +145,35 @@ stack isn't running, the auto-hook logs a clean skip and continues.
 configured but not running, bring it up manually (`cd ~/git/bnk-forge
 && make deploy`) then `kindbnkctl bnk-forge launch` to register
 after the fact.
+
+## Download
+
+Prebuilt binaries for each tagged release are on the
+[**GitHub Releases page**](https://github.com/mwiget/kindbnkctl/releases/latest) —
+three archives per release plus a `checksums.txt`:
+
+| Platform | Archive |
+|---|---|
+| Linux (Intel/AMD) | `kindbnkctl_<version>_linux_amd64.tar.gz` |
+| Linux (ARM64) | `kindbnkctl_<version>_linux_arm64.tar.gz` |
+| macOS (Apple Silicon) | `kindbnkctl_<version>_darwin_arm64.tar.gz` |
+
+One-liner install (Linux amd64; swap the suffix for your platform):
+
+```bash
+VERSION=$(curl -fsSL https://api.github.com/repos/mwiget/kindbnkctl/releases/latest | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
+curl -fsSL "https://github.com/mwiget/kindbnkctl/releases/download/${VERSION}/kindbnkctl_${VERSION#v}_linux_amd64.tar.gz" \
+  | tar -xz -C /tmp kindbnkctl
+sudo install -m 0755 /tmp/kindbnkctl /usr/local/bin/kindbnkctl
+kindbnkctl version
+```
+
+Releases follow `v<bnk-version>-<n>` — e.g. `v2.3.0-1`, `v2.3.0-2`.
+The `2.3.0` prefix tracks the pinned BNK release; the `-n` suffix
+increments per kindbnkctl-only iteration.
+
+Or build from source — see [Repo layout](#repo-layout-the-binary-itself)
+below.
 
 ## Requirements
 
