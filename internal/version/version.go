@@ -86,26 +86,37 @@ type ResourceSpec struct {
 	MemoryGB int
 }
 
-// MinBaseline + MinWithBNKForge are first-measurement floors captured
-// from a verified end-to-end smoke deployment on linux/amd64:
+// MinBaseline + MinWithBNKForge are the floor the docker daemon (or
+// Docker Desktop VM) must report so the BNK 2.3.0 chart actually
+// schedules in the two-node demo shape. Kubernetes admits pods
+// against `requests`, not RSS — and the F5 chart reserves heavily on
+// the worker node where every F5 pod lands (the control-plane node
+// holds the standard NoSchedule taint and the charts don't tolerate
+// it). Each kind node container reports the underlying daemon's
+// memory and CPU as its allocatable; kind does not partition.
 //
-//   Cluster steady-state (after CNEInstance.Available=True, all 16
-//   components green, TMM 6/6 Running, License Active):
-//     - worker:         ~3.0 GB RSS, ~120m CPU sustained, peaks to ~1.2c
-//     - control-plane:  ~1.5 GB RSS, ~330m CPU sustained
-//     - total:          ~4.5 GB pod-attributed + ~1 GB kernel overhead
-//     - TMM alone:      1.17 GB RSS, 100m CPU
+// Sum of `requests` on demo-worker for BNK 2.3.0 (measured 2026-05-21
+// on macOS Docker Desktop, stock CNE manifest 2.3.0-3.2598.3-0.0.170):
 //
-// Floor below adds ~1.5 GB / ~1 core of headroom for `kubectl top`,
-// `docker pull` bursts, and one operator-supplied test client. macOS
-// Docker Desktop adds VM overhead on top — bump 2 GB for that.
+//   memory  ~20 Gi  (TMM 9204 Mi, cne-controller 1600 Mi,
+//                    downloader/spk-csrc/crdconversion 1 Gi each,
+//                    dssm-db/dssm-sentinel 1152 Mi each,
+//                    observers/cwc/afm/ipam/rabbit/otel/flo ~3 Gi)
+//   cpu     ~12 c   (TMM 4.1c, cne-controller 1.08c, then ~6c spread
+//                    across the rest)
 //
-// MinWithBNKForge adds a modest extra for the in-cluster bnk-forge
-// agent plus the host-side bnk-forge stack. The host-side numbers are
-// still TBD; treat the extra as a guess until measured.
+// Floor below adds ~4 Gi / ~0c headroom for the control-plane pods
+// (kube-apiserver + etcd + controllers) sharing the same Docker VM,
+// kernel overhead in both node containers, and bursty docker pulls.
+// Actual steady-state RSS is far smaller (~6 Gi total) — the floor
+// is dictated by scheduling reservation, not by real usage.
+//
+// MinWithBNKForge adds the in-cluster bnk-forge agent plus the
+// host-side bnk-forge stack. Host-side numbers still TBD; the extra
+// is conservative until measured.
 var (
-	MinBaseline     = ResourceSpec{Cores: 4, MemoryGB: 6}
-	MinWithBNKForge = ResourceSpec{Cores: 5, MemoryGB: 8}
+	MinBaseline     = ResourceSpec{Cores: 12, MemoryGB: 24}
+	MinWithBNKForge = ResourceSpec{Cores: 14, MemoryGB: 26}
 )
 
 // Measured indicates whether the floor numbers above are real measured

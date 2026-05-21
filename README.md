@@ -46,39 +46,90 @@ delete cluster` → docker network rm.
 
 ## Minimum host resources
 
-First-measurement floor from a verified end-to-end run on linux/amd64
-(kindbnkctl init → e2e → CNEInstance.Available=True, all 16 components
-green, TMM 6/6 Running, License Active):
+|                          | Cluster floor       | With bnk-forge      | Free disk |
+|--------------------------|---------------------|---------------------|-----------|
+| Linux (host docker)      | **12 cores · 24 GB**| **14 cores · 26 GB**| **~10 GB**|
+| macOS / Windows Docker Desktop | **12 CPUs · 24 GB allocated to the VM** | **14 CPUs · 26 GB** | **~10 GB** |
 
-| Baseline | With bnk-forge |
-|---|---|
-| **4 cores** | **5 cores** |
-| **6 GB RAM** | **8 GB RAM** |
-| **~8 GB free disk** | **~10 GB free disk** |
+(Configured in Docker Desktop → Settings → Resources. Rancher Desktop /
+Colima use the same numbers — same underlying Linux VM model.)
 
-Where the memory goes (measured at steady state):
+### Why so much for a "demo"
 
-| Component | Working set | CPU |
+In the two-node shape every F5 pod lands on `demo-worker` —
+`demo-control-plane` holds the standard `node-role.kubernetes.io/control-plane`
+taint and the BNK 2.3.0 charts don't tolerate it. The Kubernetes
+scheduler admits pods against their `requests`, not their actual
+RSS, and the chart reserves heavily:
+
+| Pod (on the worker)                 | Memory request | CPU request |
 |---|---|---|
-| TMM pod (worker)        | ~1.17 GB | ~100m |
-| kube-apiserver          | ~900 MB  | ~150m |
-| All other F5 pods (20)  | ~1.0 GB  | ~470m |
-| Calico + coredns + etcd + kube-* | ~700 MB | ~150m |
-| Kernel / runtime per node | ~500 MB × 2 | — |
-| **Total cluster**       | **~4.5 GB pod RSS + ~1 GB overhead** | **~900m steady, peaks ~1.2c during TMM init** |
+| f5-tmm                              | 9204 Mi        | 4100m       |
+| f5-cne-controller (4 containers)    | 1600 Mi        | 1080m       |
+| f5-downloader                       | 1000 Mi        | 500m        |
+| f5-spk-csrc                         | 1024 Mi        | 500m        |
+| f5-crdconversion                    | 1024 Mi        | 500m        |
+| f5-dssm-db / -sentinel              | 1152 Mi each   | 600m each   |
+| f5-observer / -receiver             | 500 Mi each    | 512m / 1c   |
+| f5-observer-operator                | 256 Mi         | 250m        |
+| f5-spk-cwc                          | 640 Mi         | 556m        |
+| f5-afm                              | 512 Mi         | 500m        |
+| f5-ipam-ctlr / f5-rabbit            | 512 Mi each    | 100m / 300m |
+| otel-collector / flo                | 256 Mi each    | 500m / 250m |
+| **Sum on the worker**               | **~20 Gi**     | **~12 cores**|
 
-Disk: 1.4 GB (kindest/node image) + ~2.4 GB (F5 container images pulled
-to the worker) + ~0.5 GB (cert-manager, alpine/k8s tooling, manifests)
-+ ~2 GB headroom for kind cluster state and logs.
+Each kind node container reports the docker daemon's full memory and
+CPU as its allocatable — kind does not partition. So the worker won't
+schedule the full stack until the daemon (or Docker Desktop VM) is
+sized above the request total, plus ~4 Gi headroom for the
+control-plane pods sharing the same VM and kernel overhead in both
+node containers.
 
-macOS Docker Desktop runs the cluster inside a Linux VM — add ~2 GB
-to the baseline to cover that VM's own overhead. Same applies to
-Rancher Desktop / Colima.
+### What the cluster actually uses
 
-`kindbnkctl doctor` reports the host's actual CPU count and warns
+Steady-state, after `CNEInstance.Available=True`, the cluster's real
+RSS is much smaller than the reservation:
+
+| Component                        | Working set    | CPU       |
+|---|---|---|
+| TMM pod (worker)                 | ~1.2 GB        | ~100m     |
+| kube-apiserver                   | ~900 MB        | ~150m     |
+| All other F5 pods (~20)          | ~1.0 GB        | ~470m     |
+| Calico + coredns + etcd + kube-* | ~700 MB        | ~150m     |
+| Kernel / runtime per node        | ~500 MB × 2    | —         |
+| **Total cluster RSS**            | **~4.5 GB pod + ~1 GB overhead** | **~900m steady, ~1.2c during TMM init** |
+
+So the cluster lives inside ~6 GB of real memory once it's up — it
+just won't *get there* without first satisfying the K8s scheduler's
+~20 Gi worker reservation.
+
+### Symptom when the floor is too low
+
+`kindbnkctl e2e` reaches `[5/5] deploy-cne` and stalls. Six pods
+(`f5-dssm-db-0`, `f5-dssm-sentinel-0`, `f5-spk-cwc-*`,
+`f5-observer-{0,receiver-0,operator-*}`) sit `Pending` with
+`FailedScheduling: Insufficient memory` on the worker, and
+`CNEInstance.Available` never goes true. Quick check:
+
+```bash
+kubectl --kubeconfig <poc>/artifacts/kubeconfig describe node demo-worker \
+  | grep -E "Allocatable:|Allocated resources:" -A6
+```
+
+If `memory Requests` is ≥99% of `Allocatable`, raise the docker
+daemon allocation and re-run from the failed phase (`kindbnkctl
+deploy cne …`) — it's idempotent.
+
+### Disk
+
+1.4 GB (kindest/node image) + ~2.4 GB (F5 container images pulled to
+the worker) + ~0.5 GB (cert-manager, alpine/k8s tooling, manifests) +
+~5 GB headroom for kind cluster state and logs.
+
+`kindbnkctl doctor` reports the host's actual CPU count and fails
 when it falls below `MinBaseline`. Override the constants in
-`internal/version/version.go` if your environment is tighter or
-fatter than the defaults.
+`internal/version/version.go` if you've tuned chart values to reduce
+requests.
 
 ## bnk-forge integration
 
