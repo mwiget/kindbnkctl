@@ -10,6 +10,15 @@ spec:
   - name: scn-proxy-gateway
     sectionName: tcp-listener
   protocol: TCP
+  # Critical: disable PVA hardware acceleration so the data path
+  # stays in TMM's slow (TCL) path. With the default `full/assisted`,
+  # TMM offloads the connection after handshake and the iRule's
+  # `TCP::respond` fires in the VM but cannot inject bytes onto the
+  # offloaded wire — the symptom was nginx receiving raw HTTP with
+  # "broken header" errors. Setting `disabled` here lets TCP::respond
+  # actually prepend the PROXY v1 header on each new server-side
+  # connection. This is the load-bearing knob for the entire scenario.
+  pvaAccelerationMode: disabled
   rules:
   - backendRefs:
     - name: pp-backend

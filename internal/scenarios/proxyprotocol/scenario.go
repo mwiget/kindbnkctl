@@ -39,7 +39,7 @@ type scenario struct{}
 
 func (s *scenario) Name() string             { return scnName }
 func (s *scenario) Title() string            { return scnTitle }
-func (s *scenario) Rating() scenarios.Rating { return scenarios.Amber }
+func (s *scenario) Rating() scenarios.Rating { return scenarios.Green }
 func (s *scenario) Dependencies() []string   { return []string{"bgp-peer-frr"} }
 func (s *scenario) Description() string {
 	return strings.TrimSpace(`
@@ -49,9 +49,15 @@ Three new BNK CRs come together:
 
   - F5BigCneIrule  — the iRule TCL script. On CLIENT_ACCEPTED it
     captures the original client IP+port; on SERVER_CONNECTED it
-    prepends a PROXY v1 line to the server-side payload.
+    prepends a PROXY v1 line to the server-side payload via
+    TCP::respond.
   - L4Route        — TCP-protocol route binding a Gateway listener
     to a backend Service (analogous to HTTPRoute but for raw L4).
+    Critically sets spec.pvaAccelerationMode=disabled so the data
+    path stays in TMM's TCL/iRule slow path. With the default
+    full/assisted PVA mode, TMM hardware-offloads the connection
+    after handshake and the iRule's TCP::respond fires in the VM
+    but cannot inject bytes onto the offloaded wire.
   - BnkNetPolicy   — wires the iRule (extensionRef) to the route
     (targetRef) so the iRule fires on this route's traffic.
 
@@ -60,38 +66,12 @@ it consumes the PROXY header and exposes the original client
 address as $proxy_protocol_addr — the response body echoes that
 value, making end-to-end PROXY plumbing easy to assert.
 
-Rated AMBER. Control-plane assertions all pass — the new CRs
-land, the controller reports the BNKNetPolicy as ResolvedRefs
-True, the F5BigCneIrule as Programmed (config sent to all gRPC
-endpoints), the L4Route as Accepted, the Gateway listener as
-Programmed. But the iRule's TCP::respond does not actually
-prepend PROXY bytes to the server-side payload in this BNK 2.3
-build — nginx logs the incoming connection as
-'broken header: "GET / HTTP/1.1" while reading PROXY protocol'
-because no PROXY v1 line arrives. TMM accepts the L4 traffic
-and proxies it through, but the iRule injection step is a
-no-op as we've configured it.
-
-Possibilities (untested):
-  - iRule TCP::respond semantics on BNK L4Route may differ
-    from BIG-IP TMOS; might require TCP::collect/TCP::release
-    or a different event.
-  - BNK 2.3 might attach iRules at the Gateway listener via
-    BNKNetPolicy only for HTTP traffic, not for L4Route TCP.
-  - sectionName routing on BNKNetPolicy might not propagate
-    to TMM's iRule processor for non-HTTP listeners.
-
-The data-plane curl is recorded as [bonus] — not fatal to the
-scenario but visibly red in the verify report so this gap
-remains visible to anyone running it.
-
-Reproduce manually:
-
-    kubectl -n scn-bgp exec deploy/scn-frr -c frr -- \
-      curl -sS --fail http://203.0.113.102:8000/
-
-…returns "Empty reply from server"; backend nginx logs show
-"broken header" errors confirming no PROXY prefix arrived.
+5/5 curls from FRR through the Gateway are expected to return
+'kindbnkctl-scenario-proxy-protocol-OK proxy_addr=<frr-net1-ip>'.
+A response with proxy_addr=0.0.0.0 (or no proxy_addr at all)
+indicates the iRule fired but TCP::respond did not inject —
+verify pvaAccelerationMode actually landed as 'disabled' in
+the L4Route spec and TMM's profile_bigproto.
 
 Cleanup deletes scn-proxy namespace.
 `)
@@ -279,43 +259,12 @@ func (s *scenario) Verify(ctx *scenarios.Context) scenarios.Result {
 		got += " — last error: " + lastErr
 	}
 	res.Assertions = append(res.Assertions, scenarios.Assertion{
-		Description: fmt.Sprintf("[bonus] %d/%d L4 curls carry PROXY header parsed by nginx (TMM iRule injection — see description)", curls, curls),
+		Description: fmt.Sprintf("%d/%d L4 curls carry PROXY header parsed by nginx", curls, curls),
 		OK:          curlOK,
 		Got:         got,
 	})
 
-	return finalizeAmber(res)
-}
-
-// finalizeAmber treats the last assertion (the PROXY curl) as a
-// non-fatal bonus — control-plane assertions still fail the
-// scenario as usual.
-func finalizeAmber(res scenarios.Result) scenarios.Result {
-	if len(res.Assertions) == 0 {
-		return finalize(res)
-	}
-	required := res.Assertions[:len(res.Assertions)-1]
-	allOK := true
-	var failed []string
-	for _, a := range required {
-		if !a.OK {
-			allOK = false
-			failed = append(failed, a.Description)
-		}
-	}
-	bonus := res.Assertions[len(res.Assertions)-1]
-	if allOK {
-		res.Status = "ok"
-		if bonus.OK {
-			res.Summary = "L4Route + iRule + BNKNetPolicy reconciled; PROXY-injected curl succeeded"
-		} else {
-			res.Summary = "L4Route + iRule + BNKNetPolicy reconciled (PROXY injection didn't fire — see description)"
-		}
-	} else {
-		res.Status = "failed"
-		res.Summary = "failed: " + strings.Join(failed, "; ")
-	}
-	return res
+	return finalize(res)
 }
 
 func (s *scenario) Cleanup(ctx *scenarios.Context) error {

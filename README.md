@@ -394,7 +394,7 @@ Scoring of the [F5 BNK how-tos index](https://clouddocs.f5.com/bigip-next-for-ku
 | 6 | [Configure Token Counting and Enforcement](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/configure-token-counting-and-enforcement.html) | 🟢 | [`ai-token-counting`](internal/scenarios/aitokencount) | 25s |
 | 7 | [Semantic AI Model Caching](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/ai-related-features/ai-semantic-caching.html) (sub-article of [AI Traffic Optimization](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/ai-related-features/index.html)) | 🟢 | [`ai-semantic-cache`](internal/scenarios/aisemcache) | 22s |
 | 8 | [HTTP traffic steering with Gateway API HTTPRoute](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/Configure-HTTP-traffic-steering-with-Gateway-API-HTTPRoute.html) | 🟢 | [`http-routing-e2e`](internal/scenarios/httproutee2e) | 21s |
-| 9 | [Proxy Protocol iRule support for L4 routes](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/proxy-protocol.html) | 🟡 | [`proxy-protocol-l4`](internal/scenarios/proxyprotocol) | 24s |
+| 9 | [Proxy Protocol iRule support for L4 routes](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/proxy-protocol.html) | 🟢 | [`proxy-protocol-l4`](internal/scenarios/proxyprotocol) | 24s |
 | 10 | [Load Balance Traffic to External Resources](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/configure-external-resource-load-balancing.html) | 🟢 | [`external-resource-pool`](internal/scenarios/extrespool) | 14s |
 
 Wall times measured on a fresh `e2e` (cluster destroy + redeploy)
@@ -478,36 +478,35 @@ header (expect 401 "invalid token format"), bogus token
 (expect 401 "invalid token"). Independent of bgp-peer-frr —
 this is a pure runtime-access check.
 
-`proxy-protocol-l4` (amber) — implements how-to #9 (PROXY-protocol
-iRule on an L4 route). Six control-plane assertions pass: the
-new BNK CRs reconcile correctly (`F5BigCneIrule` Programmed,
-`L4Route` Accepted, `BNKNetPolicy` ResolvedRefs True), TMM
-proxies the TCP traffic, FRR learns the Gateway IP via BGP. The
-data-plane PROXY-header assertion (`[bonus]`) fails on this BNK
-2.3 build — TMM accepts the L4 connection and forwards it, but
-the iRule's `TCP::respond` does not actually inject the PROXY
-v1 header before the server-side payload, so nginx's
-`listen 80 proxy_protocol` rejects the connection with
-"broken header". The scenario remains useful as a complete
-demonstration of the CR wiring; lifting it to green would
-require figuring out whether BNK 2.3's iRule TCL subset
-supports `TCP::respond` on L4Route flows or whether a different
-iRule shape is needed.
+`proxy-protocol-l4` (green) — implements how-to #9 (PROXY-protocol
+iRule on an L4 route). The new BNK CRs reconcile (`F5BigCneIrule`
+Programmed, `L4Route` Accepted, `BNKNetPolicy` ResolvedRefs True),
+TMM proxies the TCP traffic, FRR learns the Gateway IP via BGP,
+and 5/5 curls from FRR through the Gateway return the marker body
+with the parsed `proxy_addr` set to FRR's NAD IP — proving the
+iRule's `TCP::respond` prepended the PROXY v1 line before nginx
+saw the request. Load-bearing knob: `L4Route.spec.pvaAccelerationMode:
+disabled`, which keeps the data path in TMM's TCL slow path. With
+the default `full/assisted` PVA mode, TMM hardware-offloads the
+connection after handshake and `TCP::respond` fires in the VM but
+can't reach the offloaded wire — symptoms are 200 OK from nginx
+turning into "broken header" errors and curl `(52) Empty reply`.
 
-`core-file-collection` (amber) — implements how-to #4 (set up
+`core-file-collection` (green) — implements how-to #4 (set up
 core file collection). One-line CNEInstance.spec.coreCollection.
-enabled=true flip; FLO auto-creates a CoreMond CR + DaemonSet
-in f5-cne-core and adds kernel-cores / f5-core-store /
-tmm-core volumes to the TMM Deployment template. The scenario
-asserts the CR exists, the DaemonSet has a desired replica
-count, and the TMM template carries the new volumes. The
-how-to's "kill -11 to force a crash" verification step is
-intentionally NOT automated — crashing TMM mid-scenario
-destabilises the cluster, and the follow-up "did a core file
-land in /var/crash" check needs a privileged node-level read
-we'd rather not bake in. Operators can run the kill manually
-after the scenario and inspect the kind worker container's
-filesystem to confirm capture.
+enabled=true flip plus `advanced.coremon.hostPath=true` so the
+CoreMond DaemonSet survives kind's single-node-RWO storage class.
+FLO auto-creates a CoreMond CR + DaemonSet in f5-cne-core and
+adds kernel-cores / f5-core-store / tmm-core volumes to the TMM
+Deployment template. The scenario asserts the CR exists, the
+DaemonSet is Running, and the CNEInstance condition
+`CoremondAvailable=True`. The how-to's "kill -11 to force a
+crash" verification step is intentionally NOT automated —
+crashing TMM mid-scenario destabilises the cluster, and the
+follow-up "did a core file land in /var/crash" check needs a
+privileged node-level read we'd rather not bake in. Operators
+can run the kill manually after the scenario and inspect the
+kind worker container's filesystem to confirm capture.
 
 ## Reference run report
 

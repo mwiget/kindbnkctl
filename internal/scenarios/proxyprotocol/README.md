@@ -1,9 +1,9 @@
 # `proxy-protocol-l4` — F5BigCneIrule + L4Route + BNKNetPolicy
 
 F5 how-to: [Proxy Protocol iRule support for L4 routes](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/proxy-protocol.html)
-&nbsp;·&nbsp; Rating: 🟡
+&nbsp;·&nbsp; Rating: 🟢
 &nbsp;·&nbsp; Depends on: [`bgp-peer-frr`](../bgppeer)
-&nbsp;·&nbsp; Wall time: **~24s** (no TMM restart)
+&nbsp;·&nbsp; Wall time: **~24s**
 
 Demonstrates BNK's PROXY-protocol iRule pattern on a TCP route.
 Three new BNK CRs come together:
@@ -14,7 +14,8 @@ Three new BNK CRs come together:
   payload via `TCP::respond`.
 - **`L4Route`** (`gateway.k8s.f5net.com/v1`) — TCP-protocol route
   binding a Gateway listener to a backend Service (analogous to
-  HTTPRoute but for raw L4).
+  HTTPRoute but for raw L4). **Sets `spec.pvaAccelerationMode:
+  disabled`** — the load-bearing knob, see below.
 - **`BNKNetPolicy`** (`gateway.k8s.f5net.com/v1alpha1`) — wires
   the iRule (`extensionRefs`) to the Gateway listener
   (`targetRefs`) so the iRule fires on that listener's traffic.
@@ -24,198 +25,62 @@ it parses the PROXY header and exposes the original client
 address as `$proxy_protocol_addr` — the response body echoes
 that value, making end-to-end PROXY plumbing easy to assert.
 
-## Why amber, not green
+## The `pvaAccelerationMode: disabled` knob
 
-All six control-plane assertions pass. The `[bonus]`
-data-plane assertion fails on this BNK 2.3 build.
-
-### Investigation 2026-05-20 — three patterns tried
-
-The full CR chain works fine for L4Route:
-
-- `F5BigCneIrule` reconciles (`status.conditions[Programmed]
-  CR config sent to all grpc endpoints`).
-- `BNKNetPolicy` reconciles (`ResolvedRefs True`,
-  ancestorRef = Gateway, descendantRef = F5BigCneIrule).
-- The CNE controller pushes the iRule body to TMM via gRPC
-  AND adds `"irules_reference": ["scn-proxy-pp-prepend"]` to
-  the virtual_server config for the L4 listener.
-- TMM audit-logs `action: CREATE; UUID: scn-proxy-pp-prepend;
-  event: declTmm.irule; Error: No error`.
-- The iRule **fires** on connections — patched with
-  `log tmm.local0.info "PP_IRULE: ..."` statements and TMM
-  emits `<CLIENT_ACCEPTED>`, `<SERVER_CONNECTED>`, and
-  `<CLIENT_DATA>` log lines with the correct
-  client/local IPs and ports.
-
-Three distinct injection patterns tested, all reach the line
-and produce no observable wire output:
-
-| Pattern | iRule TCL | Outcome |
-|---|---|---|
-| Canonical (matches F5 [DevCentral PROXY Initiator](https://community.f5.com/kb/codeshare/proxy-protocol-initiator/280541)) | `when SERVER_CONNECTED { TCP::respond $proxyhdr }` | iRule logs "called". nginx still gets raw `GET / HTTP/1.1`. |
-| Explicit serverside context (the F5 TMOS workaround when the canonical fails) | `when SERVER_CONNECTED { serverside { TCP::respond $proxyhdr } }` | iRule logs "done". Wire unchanged. |
-| Client-side payload manipulation (TCP::collect + TCP::payload replace + TCP::release in CLIENT_DATA) | `TCP::payload replace 0 0 $proxyhdr` in CLIENT_DATA | iRule logs "released after prepend". `TCP::payload length` returns empty even after `TCP::collect`. nginx wire unchanged. |
-
-In every case nginx logs:
-```
-broken header: "GET / HTTP/1.1" while reading PROXY protocol
-```
-
-confirming the first bytes on the server-side socket are still
-the raw HTTP request — the PROXY v1 line never appears.
-
-### Diagnostic correction
-
-The earlier (db42af8) note that `serverside { TCP::respond }`
-was *"rejected by the F5 validation webhook"* was wrong. The
-real rejection trigger was an em-dash character (`—`) in the
-log strings I was using for debugging. The webhook error
-`"braces are required around the expression"` is misleading:
-it actually fires on any non-ASCII byte in the iRule body.
-With ASCII-only strings the `serverside { }` block validates
-cleanly — it just still doesn't inject anything.
-
-### Why this likely doesn't work
-
-TMM's L4Route listener uses the auto-generated `profile_bigproto`
-profile (visible in the CNE controller gRPC trace), not a
-standard TCP profile. The DevCentral PROXY Protocol Initiator
-codeshare explicitly notes *"This requires a TCP profile to be
-applied, so a 'Standard' Virtual Server will need to be used"*.
-BNK's L4Route doesn't seem to offer a switch to use a standard
-TCP profile instead of `bigproto` — verified empirically:
-
-- `L4Route.spec` has only `parentRefs`, `protocol`,
-  `pvaAccelerationMode`, `pvaDynamicClientPkts`,
-  `pvaDynamicServerPkts`, `rules`. No profile knob.
-- `F5BnkGateway.spec` has only `ingressConfig`. No profile knob.
-- `Pool.spec.members[item]` has only `address`, `port`,
-  `priorityGroup`. No `proxy_protocol` toggle.
-- `F5BigCneIrule.spec` has only `iRule`, `namespace`, `tenant`.
-  No profile pinning.
-
-The auto-generated semantic-cache iRule (which DOES work) only
-uses `TCP::respond` for **client-side** HTTP responses via
-`HTTP::respond` and `TCP::close`, never for server-side TCP
-injection — so the working iRules carefully avoid the broken
-opcode.
-
-### Exhaustive empirical results
-
-| Event | Command | Validator | Runtime |
-|---|---|---|---|
-| `CLIENT_ACCEPTED` | `TCP::respond $hdr` | ✓ accepted | no-op (client got nothing back) |
-| `SERVER_CONNECTED` | `TCP::respond $hdr` (default ctx) | ✓ accepted | no-op (nginx sees raw HTTP) |
-| `SERVER_CONNECTED` | `serverside { TCP::respond $hdr }` | ✓ accepted | no-op |
-| `LB_SELECTED` | `TCP::respond $hdr` | ✓ accepted | no-op |
-| `CLIENT_DATA` after `TCP::collect` | `TCP::payload replace 0 0 $hdr` + `TCP::release` | ✓ accepted | `TCP::payload length` returns empty, no injection on wire |
-| any | `TCP::send $hdr` | ✗ `undefined procedure: TCP::send` | n/a |
-| any | `TCP::write $hdr` | ✗ `undefined procedure: TCP::write` | n/a |
-
-So BNK 2.3's L4Route iRule subset has **no functional TCP-data
-injection primitive at all**. The validator accepts `TCP::respond`
-but its runtime is a stub. Alternative names (`TCP::send`,
-`TCP::write`) don't exist in the dispatch table.
-
-### Re-investigation 2026-05-21 — canonical PROXY v2 initiator also fails
-
-Ran the verbatim [F5 DevCentral PROXY Protocol v2 Initiator](https://community.f5.com/kb/codeshare/proxy-protocol-initiator/280541)
-iRule (custom `proc decode` / `proc encode` plus the standard
-CLIENT_ACCEPTED + SERVER_CONNECTED handlers ending in
-`eval {${PROTO}::respond $proxy_hdr_v2}`). The validator accepted
-it, FLO pushed it to TMM (`Programmed=True`), and TMM logs show
-the iRule firing all the way through:
+PVA (Packet Velocity Accelerator) is TMM's hardware-offload
+fast path. With the L4Route default of `full/assisted`, TMM
+hardware-offloads the connection after handshake and **the
+iRule's `TCP::respond` fires in the TCL VM but cannot inject
+bytes onto the offloaded wire**. Symptom:
 
 ```
-Rule scn-proxy-pp-prepend <CLIENT_ACCEPTED>:
-  PP_V2_IRULE: encoded 28 bytes for client 192.168.99.20:34582
-Rule scn-proxy-pp-prepend <SERVER_CONNECTED>:
-  PP_V2_IRULE: SERVER_CONNECTED firing, header_len=28
-Rule scn-proxy-pp-prepend <SERVER_CONNECTED>:
-  PP_V2_IRULE: TCP::respond returned
+nginx logs:  broken header: "GET / HTTP/1.1" while reading PROXY protocol
+curl:        curl: (52) Empty reply from server
 ```
 
-`TCP::respond` accepts the call, returns cleanly (no validator
-error, no runtime error), but **does not inject bytes** onto the
-server-side TCP stream. nginx still receives raw `GET / HTTP/1.1`
-as the first bytes and rejects with "broken header" — identical
-to the simpler v1 stub. This conclusively shows that the PROXY
-v1-text vs v2-binary distinction is irrelevant: both shapes rely
-on `TCP::respond`, which is the broken primitive at the
-bigproto-profile runtime.
+…even though TMM logs show the iRule firing all the way through:
 
-We keep the simpler v1 stub in the scenario because it's the
-canonical shape from the F5 how-to and is easier to read; the
-result is identical to the canonical v2 initiator either way.
-
-### Re-investigation 2026-05-21 — direct gRPC-trace evidence
-
-Read the actual gRPC config FLO pushes to TMM for our scenario
-(scraped from `f5-cne-controller -c f5-cne-controller` logs).
-The relevant block:
-
-```json
-{
-  "@type": "type.googleapis.com/declTmm.profile_bigproto",
-  "name": "scn-proxy-...-profile_bigproto",
-  "rcvwnd": 65535,
-  "idle_timeout": 300,
-  "tcp_handshake_timeout": 5,
-  "syncookie_enable": true,
-  ...
-},
-{
-  "@type": "type.googleapis.com/declTmm.virtual_server_profile",
-  "profile": "scn-proxy-...-profile_bigproto",
-  "context": "ALL",
-  "virtual_server": "scn-proxy-...-vs"
-},
-{
-  "@type": "type.googleapis.com/declTmm.virtual_server",
-  "id":   "scn-proxy-...-vs",
-  "irules_reference": ["scn-proxy-pp-prepend"],
-  ...
-}
+```
+Rule scn-proxy-pp-prepend <CLIENT_ACCEPTED>:  encoded N bytes for client …
+Rule scn-proxy-pp-prepend <SERVER_CONNECTED>: TCP::respond returned (no error)
 ```
 
-This makes the diagnosis concrete:
+Setting `pvaAccelerationMode: disabled` keeps the data path
+in TMM's slow path where the iRule has full wire access; the
+PROXY v1 line then prepends on every server-side connection
+and nginx parses it correctly:
 
-- The only TCP-profile type FLO emits is `profile_bigproto`.
-  There is **no `profile_tcp`** option in the FLO render path,
-  and no L4Route field that would select one.
-- `virtual_server_profile.context="ALL"` is hard-coded for the
-  L4Route case — bigproto applies to both directions of the flow.
-- The iRule attachment via `virtual_server.irules_reference` works
-  exactly as documented, but the iRule body runs inside the
-  bigproto profile's TCP state machine, where `TCP::respond` is
-  the stub described above.
-
-CRD survey confirmed there is **no Big-IP-style transport
-profile CR** in BNK 2.3: the entire `f5-big-*-profiles` API
-group ships only `F5BigAccessProfile` (APM) and
-`F5BigLogProfile` (logging). Neither is a transport-layer
-profile we could attach to a virtual server. No
-`F5BigTcpProfile` / `F5BigCneProxyProfile` exists.
-
-### What lifting to green would require
-
-- F5 to implement `TCP::respond` (or an equivalent injection
-  primitive) inside `profile_bigproto`, OR
-- F5 to ship a transport-profile CR + a knob on L4Route /
-  F5BnkGateway to pin a non-bigproto profile, OR
-- document an alternative pattern we haven't found.
-
-None of those are scenario-side workarounds. Amber stays.
-
-Operators can still poke the data plane manually:
-```bash
-kubectl -n scn-bgp exec deploy/scn-frr -c frr -- \
-  curl -sS --fail --max-time 5 http://203.0.113.102:8000/
-# → curl: (52) Empty reply from server
-kubectl -n scn-proxy logs deploy/pp-backend --tail=2
-# → broken header: "GET / HTTP/1.1" while reading PROXY protocol
 ```
+$ curl http://203.0.113.102:8000/
+kindbnkctl-scenario-proxy-protocol-OK proxy_addr=192.168.99.20
+```
+
+`proxy_addr=192.168.99.20` is nginx echoing the parsed
+PROXY-protocol source IP — and `192.168.99.20` is FRR's NAD
+IP, the actual client TMM saw. End-to-end PROXY pipeline:
+FRR (client) → TMM (iRule prepends PROXY v1) → nginx (parses
+PROXY, echoes `$proxy_protocol_addr` in response body).
+
+### How we found this
+
+This scenario shipped amber for ~24 hours while we worked through
+a long false-trail diagnosis:
+
+- Tried both PROXY v1 (text) and v2 (verbatim F5 DevCentral
+  initiator iRule, binary encoding) — both fired in the VM
+  according to TMM logs but neither reached the wire.
+- Tried alternate iRule events (LB_SELECTED, serverside { },
+  CLIENT_DATA with TCP::collect + TCP::payload replace + release)
+  — same outcome.
+- Concluded that `TCP::respond` was a runtime stub in BNK 2.3's
+  `profile_bigproto` and that lifting to green needed F5 to
+  implement an injection primitive.
+
+That conclusion was wrong. `TCP::respond` works fine — PVA
+acceleration was eating the bytes. Once an internal F5 note
+surfaced that `pvaAccelerationMode` should be `disabled` for
+iRule-bearing L4Routes, a one-line patch on the L4Route fixed
+all five test curls.
 
 ## Manifests
 
@@ -224,9 +89,9 @@ kubectl -n scn-proxy logs deploy/pp-backend --tail=2
 | [`01-namespace.yaml`](manifests/01-namespace.yaml) | `scn-proxy` |
 | [`02-bnkgateway.yaml`](manifests/02-bnkgateway.yaml) | `F5BnkGateway` IP pool for 203.0.113.102 |
 | [`03-backend.yaml`](manifests/03-backend.yaml) | nginx Deployment + Service + ConfigMap; `listen 80 proxy_protocol` so it parses the PROXY header (and rejects plain HTTP) |
-| [`04-gateway.yaml`](manifests/04-gateway.yaml) | Gateway with TCP listener on port 8000 (matching the F5 doc), `allowedRoutes.kinds = L4Route` |
+| [`04-gateway.yaml`](manifests/04-gateway.yaml) | Gateway with TCP listener on port 8000, `allowedRoutes.kinds = L4Route` |
 | [`05-irule.yaml`](manifests/05-irule.yaml) | `F5BigCneIrule` with the PROXY v1 iRule TCL |
-| [`06-l4route.yaml`](manifests/06-l4route.yaml) | `L4Route` binding the listener to the backend Service |
+| [`06-l4route.yaml`](manifests/06-l4route.yaml) | `L4Route` binding the listener to the backend Service, **with `pvaAccelerationMode: disabled`** |
 | [`07-bnknetpolicy.yaml`](manifests/07-bnknetpolicy.yaml) | `BNKNetPolicy` linking iRule → Gateway listener (kind=Gateway is the only allowed `targetRefs.kind`; sectionName=tcp-listener) |
 
 ## How to run
@@ -236,9 +101,7 @@ kindbnkctl scenario run bgp-peer-frr     --poc <pocdir>   # if not running
 kindbnkctl scenario run proxy-protocol-l4 --poc <pocdir>
 ```
 
-## Verification
-
-Required (6/6 must pass):
+## Verification (7/7)
 
 ```
 ✓ pp-backend Deployment Available
@@ -247,22 +110,15 @@ Required (6/6 must pass):
 ✓ F5BigCneIrule pp-prepend exists
 ✓ BnkNetPolicy scn-proxy-attach exists
 ✓ FRR BGP table has 203.0.113.102/32 advertised by TMM
+✓ 5/5 L4 curls carry PROXY header parsed by nginx
 ```
 
-Bonus (will fail on BNK 2.3 — see "Why amber" above):
-
-```
-✗ [bonus] 5/5 L4 curls carry PROXY header parsed by nginx
-```
-
-Reproduce the bonus check manually:
+Reproduce the data-plane check manually:
 
 ```bash
 kubectl -n scn-bgp exec deploy/scn-frr -c frr -- \
   curl -sS --fail http://203.0.113.102:8000/
-# → currently: curl: (52) Empty reply from server
-# nginx logs (kubectl logs -n scn-proxy deploy/pp-backend) show:
-# "broken header: 'GET / HTTP/1.1' while reading PROXY protocol"
+# → kindbnkctl-scenario-proxy-protocol-OK proxy_addr=192.168.99.20
 ```
 
 ## Cleanup
