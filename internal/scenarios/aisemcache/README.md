@@ -3,7 +3,7 @@
 F5 how-to: [Semantic AI Model Caching](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/ai-related-features/ai-semantic-caching.html)
 &nbsp;·&nbsp; Rating: 🟢
 &nbsp;·&nbsp; Depends on: [`bgp-peer-frr`](../bgppeer)
-&nbsp;·&nbsp; Wall time: **~7s** (with bgp-peer-frr running already)
+&nbsp;·&nbsp; Wall time: **~22s** (with bgp-peer-frr running already)
 
 Two annotations together enable BNK's semantic caching. On the
 Gateway:

@@ -3,7 +3,7 @@
 F5 how-to: [Configure Load Balance Traffic to External Resources](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/configure-external-resource-load-balancing.html)
 &nbsp;·&nbsp; Rating: 🟢
 &nbsp;·&nbsp; Depends on: [`bgp-peer-frr`](../bgppeer)
-&nbsp;·&nbsp; Wall time: **~25s** (no TMM restart)
+&nbsp;·&nbsp; Wall time: **~14s** (no TMM restart)
 
 The novelty over `http-routing-e2e` is the BNK
 **`Pool`** CR (`group: k8s.f5net.com, kind: Pool`). HTTPRoute's

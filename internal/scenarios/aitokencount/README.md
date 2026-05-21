@@ -3,7 +3,7 @@
 F5 how-to: [Configure Token Counting and Enforcement](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/configure-token-counting-and-enforcement.html)
 &nbsp;·&nbsp; Rating: 🟢
 &nbsp;·&nbsp; Depends on: [`bgp-peer-frr`](../bgppeer)
-&nbsp;·&nbsp; Wall time: **~8s** (with bgp-peer-frr running already)
+&nbsp;·&nbsp; Wall time: **~25s** (with bgp-peer-frr running already)
 
 Demonstrates BNK's AI token-counting feature. The mechanism is a
 single annotation on `Gateway.spec.infrastructure.annotations`:

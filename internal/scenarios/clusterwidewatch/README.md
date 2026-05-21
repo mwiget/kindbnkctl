@@ -3,7 +3,7 @@
 F5 how-to: [Components needing cluster-wide access](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-whole-cluster.html)
 &nbsp;·&nbsp; Rating: 🟢
 &nbsp;·&nbsp; Depends on: nothing
-&nbsp;·&nbsp; Wall time: **~6s**
+&nbsp;·&nbsp; Wall time: **~4s**
 
 The F5 how-to itself is architectural prose — zero YAML, zero
 kubectl commands. Two load-bearing claims:

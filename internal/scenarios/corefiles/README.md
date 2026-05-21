@@ -3,7 +3,7 @@
 F5 how-to: [Set up core file collection](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-coremond.html)
 &nbsp;·&nbsp; Rating: 🟢
 &nbsp;·&nbsp; Depends on: nothing
-&nbsp;·&nbsp; Wall time: **~2m49s** (TMM rollover dominates)
+&nbsp;·&nbsp; Wall time: **~3m01s** (TMM rollover dominates)
 
 The how-to is a single CNEInstance toggle, plus one kind-specific
 knob we have to set alongside it (see below):
