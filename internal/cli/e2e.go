@@ -60,7 +60,7 @@ func newE2ECmd() *cobra.Command {
 		Long: `Run every phase from validate through deploy cne in order,
 auto-filling --yolo and --confirm-* safety gates from poc.yaml. Each
 phase's stdout/stderr lands at reports/<timestamp>/logs/NN-<phase>.log;
-per-phase results aggregate into reports/<timestamp>/run.{json,md}.
+per-phase results aggregate into reports/<timestamp>/run-<pocname>-<stamp>.{json,md}.
 
 Phases:
 
@@ -81,7 +81,7 @@ Invocation:
   kindbnkctl e2e --yolo --with-scenarios
                                        After deploy succeeds, run every
                                         green scenario and roll the results
-                                        into the same run.{json,md} so one
+                                        into the same run-<pocname>-<stamp>.{json,md} so one
                                         report covers cluster bring-up
                                         + every how-to.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -96,7 +96,7 @@ Invocation:
 	cmd.Flags().BoolVar(&f.continueOnFailure, "continue-on-failure", false, "Keep running after a phase fails")
 	cmd.Flags().BoolVar(&f.noResume, "no-resume", false, "Ignore artifacts/e2e-state.json")
 	cmd.Flags().StringVar(&f.confirmCluster, "confirm-cluster", "", "Required typo-guard; must equal poc.yaml.metadata.name. Also used for --confirm-deploy")
-	cmd.Flags().BoolVar(&f.withScenarios, "with-scenarios", false, "After deploy succeeds, run every green scenario (topo-sorted) and include results in the same run.{json,md}")
+	cmd.Flags().BoolVar(&f.withScenarios, "with-scenarios", false, "After deploy succeeds, run every green scenario (topo-sorted) and include results in the same run-<pocname>-<stamp>.{json,md}")
 	return cmd
 }
 
@@ -291,7 +291,8 @@ func runE2E(ctx context.Context, out io.Writer, f *e2eFlags) error {
 	if f.dryRun {
 		return nil
 	}
-	if err := writeRunReports(reportDir, report); err != nil {
+	reportBase, err := writeRunReports(reportDir, report)
+	if err != nil {
 		fmt.Fprintf(out, "WARN: write reports: %v\n", err)
 	}
 	scenarioFailed := 0
@@ -300,20 +301,24 @@ func runE2E(ctx context.Context, out io.Writer, f *e2eFlags) error {
 			scenarioFailed++
 		}
 	}
+	reportLabel := reportDir
+	if reportBase != "" {
+		reportLabel = filepath.Join(reportDir, reportBase+".md")
+	}
 	if deployFailed > 0 {
-		return fmt.Errorf("e2e: %d phase(s) failed — see %s", deployFailed, reportDir)
+		return fmt.Errorf("e2e: %d phase(s) failed — see %s", deployFailed, reportLabel)
 	}
 	if scenarioFailed > 0 {
-		return fmt.Errorf("e2e: %d scenario(s) failed — see %s", scenarioFailed, reportDir)
+		return fmt.Errorf("e2e: %d scenario(s) failed — see %s", scenarioFailed, reportLabel)
 	}
-	fmt.Fprintf(out, "DONE. Report at %s\n", reportDir)
+	fmt.Fprintf(out, "DONE. Report at %s\n", reportLabel)
 	return nil
 }
 
 // runScenariosForE2E runs every green scenario in topo-sorted order
 // against the freshly-deployed cluster and appends one SummaryEntry
 // per scenario to report.Scenarios. Per-scenario JSON files land in
-// the same reports/<stamp>/scenarios/ dir as the e2e run.{json,md}
+// the same reports/<stamp>/scenarios/ dir as the e2e run-<pocname>-<stamp>.{json,md}
 // (driven by sctx.ReportStamp).
 func runScenariosForE2E(ctx context.Context, out io.Writer, repo, reportDir string, report *runReport) error {
 	p, err := poc.Load(repo)
@@ -471,12 +476,43 @@ type phaseReport struct {
 	Summary   string    `json:"summary"`
 }
 
-func writeRunReports(dir string, r runReport) error {
+// writeRunReports persists the aggregate as
+// `run-<pocname>-<stamp>.{json,md}` so the file is self-identifying
+// when copied or attached outside the reports/ tree. The stamp is
+// taken from the report dir name.
+func writeRunReports(dir string, r runReport) (string, error) {
+	stamp := filepath.Base(strings.TrimRight(filepath.Clean(dir), "/"))
+	base := fmt.Sprintf("run-%s-%s", safeSlug(r.PoCName), stamp)
 	jb, _ := json.MarshalIndent(r, "", "  ")
-	if err := os.WriteFile(filepath.Join(dir, "run.json"), jb, 0o644); err != nil {
-		return err
+	if err := os.WriteFile(filepath.Join(dir, base+".json"), jb, 0o644); err != nil {
+		return "", err
 	}
-	return os.WriteFile(filepath.Join(dir, "run.md"), []byte(renderRunMarkdown(r)), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, base+".md"),
+		[]byte(renderRunMarkdown(r)), 0o644); err != nil {
+		return "", err
+	}
+	return base, nil
+}
+
+// safeSlug strips characters that would be awkward in a filename.
+// PoC names are usually already clean kebab-case but be defensive.
+func safeSlug(s string) string {
+	if s == "" {
+		return "poc"
+	}
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '-' || r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	return b.String()
 }
 
 func renderRunMarkdown(r runReport) string {

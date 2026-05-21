@@ -205,11 +205,12 @@ func runScenarios(ctx context.Context, out io.Writer, args []string, f *scenario
 			Skipped:   skipped,
 			Scenarios: entries,
 		}
-		if err := scenarios.WriteRunSummary(repo, sctx.ReportStamp, sum); err != nil {
+		base, err := scenarios.WriteRunSummary(repo, p.Metadata.Name, sctx.ReportStamp, sum)
+		if err != nil {
 			fmt.Fprintf(out, "warning: writing run summary: %v\n", err)
 		} else {
-			fmt.Fprintf(out, "summary: reports/%s/run.{json,md}  —  %d passed, %d failed, %d skipped (%s)\n",
-				sctx.ReportStamp, sum.Passed, sum.Failed, sum.Skipped, sum.Duration)
+			fmt.Fprintf(out, "summary: reports/%s/%s.{json,md}  —  %d passed, %d failed, %d skipped (%s)\n",
+				sctx.ReportStamp, base, sum.Passed, sum.Failed, sum.Skipped, sum.Duration)
 		}
 	}
 

@@ -137,20 +137,27 @@ type SummaryEntry struct {
 	Summary string `json:"summary"`
 }
 
-// WriteRunSummary persists the aggregate run.json + run.md under
-// <PoCDir>/reports/<stamp>/. Best-effort: errors are returned but the
-// caller is expected to keep going (we already have per-scenario JSONs).
-func WriteRunSummary(pocDir, stamp string, sum RunSummary) error {
+// WriteRunSummary persists the aggregate as
+// `run-<pocname>-<stamp>.{json,md}` under <PoCDir>/reports/<stamp>/.
+// Including the PoC name + stamp in the filename means the file is
+// self-identifying when copied or attached outside the reports/ tree.
+// Returns the base filename (without extension) on success so callers
+// can echo a precise path to the user.
+//
+// Best-effort: errors are returned but the caller is expected to keep
+// going (the per-scenario JSONs are already persisted).
+func WriteRunSummary(pocDir, pocName, stamp string, sum RunSummary) (string, error) {
 	dir := filepath.Join(pocDir, "reports", stamp)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+		return "", err
 	}
+	base := fmt.Sprintf("run-%s-%s", safeSlug(pocName), stamp)
 	data, err := json.MarshalIndent(sum, "", "  ")
 	if err != nil {
-		return err
+		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "run.json"), data, 0o644); err != nil {
-		return err
+	if err := os.WriteFile(filepath.Join(dir, base+".json"), data, 0o644); err != nil {
+		return "", err
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "# scenario run %s\n\n", stamp)
@@ -165,11 +172,32 @@ func WriteRunSummary(pocDir, stamp string, sum RunSummary) error {
 		fmt.Fprintf(&b, "| [`%s`](scenarios/%s.json) | %s | %s | %s |\n",
 			e.Name, e.Name, e.Rating, e.Status, mdEscape(e.Summary))
 	}
-	return os.WriteFile(filepath.Join(dir, "run.md"), []byte(b.String()), 0o644)
+	return base, os.WriteFile(filepath.Join(dir, base+".md"), []byte(b.String()), 0o644)
 }
 
 func mdEscape(s string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(s, "|", `\|`), "\n", " ")
+}
+
+// safeSlug strips characters that would be awkward in a filename.
+// Duplicate of internal/cli/safeSlug to keep packages independent.
+func safeSlug(s string) string {
+	if s == "" {
+		return "poc"
+	}
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '-' || r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	return b.String()
 }
 
 // Cleanup runs the scenario's Cleanup hook and emits a one-line
