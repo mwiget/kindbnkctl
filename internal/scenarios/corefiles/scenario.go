@@ -246,37 +246,30 @@ func (s *scenario) Verify(ctx *scenarios.Context) scenarios.Result {
 }
 
 func (s *scenario) Cleanup(ctx *scenarios.Context) error {
-	r := ctx.Runner
-	// Disable the feature on CNEInstance — FLO garbage-collects
-	// the CoreMond CR + DaemonSet on its own. Also remove the
-	// hostPath knob we set in Apply.
-	_ = r.Kubectl(ctx.Ctx, "patch", "cneinstance", "bnk-instance",
-		"-n", "default", "--type=merge",
-		"-p", `{"spec":{`+
-			`"coreCollection":{"enabled":false},`+
-			`"advanced":{"coremon":{"hostPath":false}}`+
-			`}}`)
-
-	// Known BNK 2.3 FLO bug: after this toggle, FLO sends UPDATE
-	// requests for every managed component CR (F5Tmm, DSSM, Cwc,
-	// CSRC, IPAMController, Observer, etc.) with
-	// `spec.crashagentConfig: null`. The API server rejects every
-	// one with
-	//   "spec.crashagentConfig: Invalid value: 'null':
-	//    spec.crashagentConfig in body must be of type object"
-	// — measured ~900 validation errors over the 5 minutes after a
-	// clean. The errors are noisy but cosmetic: the F5Tmm/Pod
-	// template reconcile chain still completes (verified
-	// empirically — bgp-peer-frr passes consistently right after
-	// this cleanup with no intervention). Restarting the FLO
-	// operator pod doesn't help either; the bug re-triggers
-	// immediately as FLO re-renders the same null-bearing spec.
-	// Workaround would have to live in FLO itself.
+	// We deliberately DO NOT toggle `coreCollection.enabled` back to
+	// false here. Earlier annotations claimed the `crashagentConfig:
+	// null` validation flood that toggle triggers was "noisy but
+	// cosmetic" — empirically that's wrong. Once FLO starts UPDATEing
+	// every managed CR (F5Tmm, CNEController, Afm, Cwc, IPAMController,
+	// Observer, DSSM, Rabbitmq, …) with `spec.crashagentConfig: null`,
+	// the API server rejects all of them and the parent CNEInstance
+	// flips `status.conditions[Reconciled] = False`. From there FLO
+	// can no longer propagate ANY subsequent CNEInstance change —
+	// including bgp-peer-frr's `networkAttachments: [bnk-bgp]` patch,
+	// which is why TMM comes up without `net1` after a clean+rerun
+	// and BGP can never reach Established.
 	//
-	// Restart TMM to drop the kernel-cores / f5-core-store /
-	// tmm-core volumes from its pod spec.
-	_ = r.Kubectl(ctx.Ctx, "-n", "default", "rollout", "restart",
-		"deployment/f5-tmm")
+	// Restarting the FLO operator doesn't help: it re-renders the
+	// same null-bearing spec on next sync and re-wedges itself.
+	// Until F5 fixes that reconcile path, leaving the feature
+	// enabled is the cheap reliable choice. The CoreMond DaemonSet
+	// is a small DaemonSet on hostPath — harmless to leave running
+	// on a kind cluster.
+	//
+	// What we still need to do: nothing. CoreMond + the host-path
+	// volume mounts are idempotent for re-Apply; the scenario's
+	// state is fully expressed by CNEInstance.spec.coreCollection.
+	_ = ctx
 	return nil
 }
 

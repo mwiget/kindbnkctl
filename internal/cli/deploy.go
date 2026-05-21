@@ -411,7 +411,27 @@ func runDeployCNE(ctx context.Context, out io.Writer, f *deployCNEFlags) error {
 		fmt.Fprintln(out, "      License Active.")
 	}
 
-	// 4. Patch f5-tmm Deployment strategy to Recreate.
+	// 4. Apply the cluster-scoped GatewayClass that every BNK Gateway
+	//    references. This used to live in the http-routing-e2e scenario
+	//    only, which meant any other scenario creating a Gateway BEFORE
+	//    http-routing-e2e ran (which under topo-sorted --all is every
+	//    Gateway-creating scenario) had its Gateway marked-for-deletion
+	//    by f5-cne-controller — log line: "Not able to find gatewayClass
+	//    object: bnk-gatewayclass". The GatewayClass is platform-level
+	//    infrastructure, not test scaffolding, so it belongs here.
+	fmt.Fprintln(out, "[4/5] Applying bnk-gatewayclass GatewayClass ...")
+	if err := r.Apply(ctx, `apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: bnk-gatewayclass
+spec:
+  controllerName: f5.com/default-f5-cne-controller
+  description: "F5 BIG-IP Kubernetes Gateway managed by FLO"
+`); err != nil {
+		return fmt.Errorf("apply bnk-gatewayclass: %w", err)
+	}
+
+	// 5. Patch f5-tmm Deployment strategy to Recreate.
 	// FLO ships the Deployment with RollingUpdate (maxSurge=25%,
 	// maxUnavailable=25%) which on a 1-replica deployment runs two
 	// pods during rollover — wasteful on a kind worker and prone to
@@ -422,7 +442,7 @@ func runDeployCNE(ctx context.Context, out io.Writer, f *deployCNEFlags) error {
 	// in BNK 2.3), and the CNEInstance/F5Tmm schema doesn't expose
 	// a strategy knob at any level, so a direct Deployment patch
 	// is the only way to set it.
-	fmt.Fprintln(out, "[4/4] Patching f5-tmm Deployment strategy=Recreate ...")
+	fmt.Fprintln(out, "[5/5] Patching f5-tmm Deployment strategy=Recreate ...")
 	if err := r.Kubectl(ctx, "-n", "default", "patch", "deployment", "f5-tmm",
 		"--type=json",
 		"-p", `[{"op":"remove","path":"/spec/strategy/rollingUpdate"},`+

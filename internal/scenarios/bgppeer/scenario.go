@@ -210,6 +210,12 @@ func (s *scenario) Apply(ctx *scenarios.Context) error {
 	//      kernel-side net1 stays UP but loses its IPAM-assigned
 	//      address — ZeBOS can't `update-source net1` against an
 	//      IP-less interface.
+	// Do NOT include `advanced.tmm.annotations` here. Empirically, when
+	// we provide that field, FLO treats it as the authoritative annotation
+	// set and skips its own auto-injection of `k8s.v1.cni.cncf.io/networks`
+	// — so the new TMM pod comes up without the bnk-bgp NAD attached and
+	// BGP can never reach Established. A bare "managed-by" label is not
+	// worth that breakage.
 	patch := `{"spec":{
 		"networkAttachments":["bnk-bgp"],
 		"advanced":{"tmm":{"env":[
@@ -217,7 +223,7 @@ func (s *scenario) Apply(ctx *scenarios.Context) error {
 			{"name":"TMM_DEFAULT_MTU","value":"1500"},
 			{"name":"TMM_MAPRES_ADDL_VETHS_ON_DP","value":"FALSE"},
 			{"name":"ZEBOS_STATE","value":"legacy"}
-		],"annotations":{"kindbnkctl.f5.com/managed-by":"kindbnkctl"}}}
+		]}}
 	}}`
 	if err := r.Kubectl(ctx.Ctx, "patch", "cneinstance", "bnk-instance",
 		"-n", "default", "--type=merge", "-p", patch); err != nil {
@@ -226,6 +232,13 @@ func (s *scenario) Apply(ctx *scenarios.Context) error {
 
 	// 5. Restart TMM so the new pod picks up both the Multus NAD
 	//    attachment and the freshly-applied ZeBOS ConfigMap.
+	//
+	//    Single rollout only — a second `kubectl rollout restart`
+	//    here triggers a template update that's NOT driven by a
+	//    CNEInstance change, and FLO doesn't re-inject the
+	//    network-attachment annotation on that codepath. The new
+	//    TMM pod then has no net1, BGP can't bind, and the rest
+	//    of the scenario is doomed.
 	if err := r.Kubectl(ctx.Ctx, "-n", "default", "rollout", "restart",
 		"deployment/f5-tmm"); err != nil {
 		return fmt.Errorf("rollout restart f5-tmm: %w", err)
@@ -233,6 +246,30 @@ func (s *scenario) Apply(ctx *scenarios.Context) error {
 	if err := r.Kubectl(ctx.Ctx, "-n", "default", "rollout", "status",
 		"deployment/f5-tmm", "--timeout=5m"); err != nil {
 		return fmt.Errorf("f5-tmm rollout did not complete: %w", err)
+	}
+
+	// 5b. Wait for FLO to actually attach the NAD on the freshly-rolled
+	//     pod. The rollout completing means k8s Deployment reached
+	//     Available; FLO's `k8s.v1.cni.cncf.io/networks` injection +
+	//     Multus's IPAM happen on the next pod the controller renders,
+	//     which can lag rollout completion by a beat. Poll the network-
+	//     status annotation until bnk-bgp shows up (or we give up).
+	//     Without this wait, verify can race past Apply and see a pod
+	//     with no net1 even though the next pod over will have it.
+	deadline := time.Now().Add(2 * time.Minute)
+	for time.Now().Before(deadline) {
+		tmm, err := newestTMMPod(ctx)
+		if err == nil {
+			if ip, err := podBnkBgpIP(ctx, "default", tmm); err == nil && strings.HasPrefix(ip, "192.168.99.") {
+				fmt.Fprintf(ctx.Out, "      | TMM net1 attached: %s on %s\n", ip, tmm)
+				break
+			}
+		}
+		select {
+		case <-ctx.Ctx.Done():
+			break
+		case <-time.After(5 * time.Second):
+		}
 	}
 
 	// 6. Inject passwd.conf into the new TMM pod. Retry loop re-fetches
@@ -272,12 +309,13 @@ func (s *scenario) Verify(ctx *scenarios.Context) scenarios.Result {
 	})
 
 	// 2. FRR pod has a net1 interface with an IP in the NAD range.
-	frrIfs, _ := r.KubectlCapture(ctx.Ctx, "-n", "scn-bgp", "exec",
-		frrPod, "-c", "frr", "--", "ip", "-4", "addr", "show", "net1")
+	//    Same source-of-truth as the TMM check below: Multus annotation,
+	//    not an exec into the container.
+	frrNet1IP, _ := podBnkBgpIP(ctx, "scn-bgp", frrPod)
 	res.Assertions = append(res.Assertions, scenarios.Assertion{
 		Description: "FRR pod has net1 on the bnk-bgp bridge (192.168.99.0/24)",
-		OK:          strings.Contains(frrIfs, "192.168.99."),
-		Got:         oneLine(frrIfs, 200),
+		OK:          strings.HasPrefix(frrNet1IP, "192.168.99."),
+		Got:         frrNet1IP,
 	})
 
 	// Always target the newest TMM pod — Deployment RollingUpdate
@@ -292,14 +330,41 @@ func (s *scenario) Verify(ctx *scenarios.Context) scenarios.Result {
 		return res
 	}
 
-	// 3. TMM pod has a net1 interface in the NAD range.
-	tmmIfs, _ := r.KubectlCapture(ctx.Ctx, "-n", "default", "exec",
-		tmmPod, "-c", "debug", "--",
-		"ip", "-4", "addr", "show", "net1")
+	// 3. TMM pod has a net1 interface in the NAD range — read from the
+	//    canonical Multus annotation `k8s.v1.cni.cncf.io/network-status`
+	//    rather than exec-ing into a TMM container. The annotation is
+	//    set by Multus when the pod attaches to the NAD, so it works
+	//    independent of what's installed inside any container image,
+	//    and survives mapres-style kernel-IP shenanigans (mapres can
+	//    flush the kernel inet but the annotation stays the source of
+	//    truth for what was assigned).
+	//
+	//    Retry: after a clean+redeploy the CNEInstance patch triggers
+	//    a TMM rollout; multus runs after IPAM, so the annotation
+	//    appears a few seconds AFTER the pod hits Running. Re-resolve
+	//    newest TMM each iteration so we don't pin to a pod rolling away.
+	var tmmNet1IP string
+	tmmHasNet1 := false
+	for i := 0; i < 24; i++ {
+		if p, err := newestTMMPod(ctx); err == nil {
+			tmmPod = p
+		}
+		ip, err := podBnkBgpIP(ctx, "default", tmmPod)
+		if err == nil && strings.HasPrefix(ip, "192.168.99.") {
+			tmmNet1IP = ip
+			tmmHasNet1 = true
+			break
+		}
+		select {
+		case <-ctx.Ctx.Done():
+			break
+		case <-time.After(5 * time.Second):
+		}
+	}
 	res.Assertions = append(res.Assertions, scenarios.Assertion{
 		Description: "TMM pod has net1 on the bnk-bgp bridge",
-		OK:          strings.Contains(tmmIfs, "192.168.99."),
-		Got:         oneLine(tmmIfs, 200),
+		OK:          tmmHasNet1,
+		Got:         tmmNet1IP,
 	})
 
 	// 4. ZeBOS in TMM sees the configured neighbor (any 192.168.99.x).
@@ -338,7 +403,13 @@ func (s *scenario) Verify(ctx *scenarios.Context) scenarios.Result {
 	//    `show bgp summary json` would also work but we'd need to
 	//    pipe through jq. Substring check on the transient states is
 	//    cheap and reliable.
-	deadline := time.Now().Add(2 * time.Minute)
+	// Cold start (clean → redeploy) needs a generous window. Even with
+	// the second TMM rollout baked into Apply, observed convergence
+	// can run 3-6 minutes (rollout #2 ~1m, ZeBOS init ~30s, BGP
+	// connect-retry timers with backoff up to ~2-3min). 8 minutes
+	// covers worst-case without being excessive on the happy path
+	// (the loop exits as soon as Established is detected).
+	deadline := time.Now().Add(8 * time.Minute)
 	var lastSummary string
 	established := false
 	for time.Now().Before(deadline) {
@@ -468,6 +539,47 @@ func discoverNet1(ctx *scenarios.Context, namespace, labelSelector string) (stri
 		}
 	}
 	return "", fmt.Errorf("bnk-bgp entry not found in network-status: %q", oneLine(netStatus, 300))
+}
+
+// podBnkBgpIP returns the IPv4 address Multus assigned for the
+// bnk-bgp NAD attachment on a specific pod (by name), reading the
+// k8s.v1.cni.cncf.io/network-status annotation. Used by verify
+// when the caller already knows the pod name (e.g. newest TMM).
+// Empty string + error if the annotation hasn't appeared yet or
+// the pod has no bnk-bgp entry.
+func podBnkBgpIP(ctx *scenarios.Context, namespace, podName string) (string, error) {
+	r := ctx.Runner
+	netStatus, err := r.KubectlCapture(ctx.Ctx, "-n", namespace, "get", "pod",
+		podName,
+		"-o", `jsonpath={.metadata.annotations.k8s\.v1\.cni\.cncf\.io/network-status}`)
+	if err != nil {
+		return "", err
+	}
+	netStatus = strings.TrimSpace(netStatus)
+	if netStatus == "" {
+		return "", fmt.Errorf("no network-status annotation yet on %s/%s", namespace, podName)
+	}
+	var entries []struct {
+		Name string   `json:"name"`
+		IPs  []string `json:"ips"`
+	}
+	if err := json.Unmarshal([]byte(netStatus), &entries); err != nil {
+		return "", fmt.Errorf("parse network-status: %w", err)
+	}
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name, "bnk-bgp") && !strings.HasSuffix(e.Name, "/bnk-bgp") {
+			continue
+		}
+		for _, ip := range e.IPs {
+			if slash := strings.Index(ip, "/"); slash > 0 {
+				ip = ip[:slash]
+			}
+			if !strings.Contains(ip, ":") && ip != "" {
+				return ip, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("bnk-bgp entry not in network-status: %q", oneLine(netStatus, 200))
 }
 
 // ensureBridgeCNI downloads the containernetworking/plugins
