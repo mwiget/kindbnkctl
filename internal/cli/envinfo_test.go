@@ -292,6 +292,62 @@ func TestRenderEnvironment_WithTopology(t *testing.T) {
 	}
 }
 
+func TestTrimHash(t *testing.T) {
+	cases := []struct{ in, want string }{
+		// Deployment-owned: drop <rs-hash>-<pod-hash>
+		{"f5-tmm-86d57455b8-bfzx2", "f5-tmm"},
+		{"f5-afm-7699b8fb47-dcmjd", "f5-afm"},
+		{"f5-cne-controller-7dd664dcf9-7jrbn", "f5-cne-controller"},
+		{"f5-spk-cwc-589456c5fb-kspgx", "f5-spk-cwc"},
+		// DaemonSet-style 5-char suffix only
+		{"f5-spk-csrc-6wmg5", "f5-spk-csrc"},
+		// StatefulSet ordinal — preserve.
+		{"f5-dssm-db-0", "f5-dssm-db-0"},
+		{"f5-observer-0", "f5-observer-0"},
+		{"f5-dssm-sentinel-2", "f5-dssm-sentinel-2"},
+		// Already-clean
+		{"kube-proxy", "kube-proxy"},
+		// Single-segment
+		{"single", "single"},
+	}
+	for _, c := range cases {
+		if got := trimHash(c.in); got != c.want {
+			t.Errorf("trimHash(%q)=%q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestRenderTopologyDiagram(t *testing.T) {
+	e := &EnvInfo{
+		KindClusterName: "smoke",
+		Nodes: []NodeInfo{
+			{Name: "smoke-control-plane", Role: "control-plane",
+				Ready: "True", K8sVersion: "v1.30.8", Pods: 6},
+			{Name: "smoke-worker", Role: "worker",
+				Ready: "True", K8sVersion: "v1.30.8", Pods: 28},
+		},
+		KeyPods: []PodInfo{
+			{Namespace: "default", Name: "f5-tmm-86d57455b8-bfzx2",
+				Node: "smoke-worker", Ready: "6/6", Status: "Running"},
+			{Namespace: "f5-cne-core", Name: "f5-observer-0",
+				Node: "smoke-worker", Ready: "1/1", Status: "Running"},
+		},
+	}
+	d := renderTopologyDiagram(e)
+	for _, want := range []string{
+		"kind cluster: smoke",
+		"smoke-control-plane",
+		"smoke-worker",
+		"default/f5-tmm  6/6 Running",     // hash stripped
+		"f5-cne-core/f5-observer-0",       // StatefulSet ordinal kept
+		"┌─", "└─", "│",                   // box drawing characters
+	} {
+		if !strings.Contains(d, want) {
+			t.Errorf("diagram missing %q:\n%s", want, d)
+		}
+	}
+}
+
 func TestRenderRunMarkdown_CombinedTotal(t *testing.T) {
 	now := time.Time{}
 	r := runReport{

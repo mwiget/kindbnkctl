@@ -387,12 +387,15 @@ func runScenariosForE2E(ctx context.Context, out io.Writer, repo, reportDir stri
 
 	fmt.Fprintf(out, "\n--with-scenarios: running %d green scenario(s) ...\n\n", len(ordered))
 	for _, s := range ordered {
+		scnStart := time.Now()
 		r := scenarios.Run(sctx, s)
+		dur := time.Since(scnStart).Truncate(time.Second).String()
 		report.Scenarios = append(report.Scenarios, scenarios.SummaryEntry{
-			Name:    s.Name(),
-			Rating:  string(s.Rating()),
-			Status:  r.Status,
-			Summary: r.Summary,
+			Name:     s.Name(),
+			Rating:   string(s.Rating()),
+			Status:   r.Status,
+			Duration: dur,
+			Summary:  r.Summary,
 		})
 		fmt.Fprintln(out)
 	}
@@ -604,11 +607,15 @@ func renderRunMarkdown(r runReport) string {
 	if len(r.Scenarios) > 0 {
 		fmt.Fprintf(&b, "\n## Scenarios\n\n%d ok, %d failed, %d skipped\n\n",
 			scOK, scFailed, scSkipped)
-		b.WriteString("| Scenario | Rating | Status | Summary |\n")
-		b.WriteString("|---|---|---|---|\n")
+		b.WriteString("| Scenario | Rating | Status | Duration | Summary |\n")
+		b.WriteString("|---|---|---|---|---|\n")
 		for _, s := range r.Scenarios {
-			fmt.Fprintf(&b, "| [`%s`](scenarios/%s.json) | %s | %s | %s |\n",
-				s.Name, s.Name, s.Rating, s.Status, mdEscapeBar(s.Summary))
+			dur := s.Duration
+			if dur == "" {
+				dur = "—"
+			}
+			fmt.Fprintf(&b, "| [`%s`](scenarios/%s.json) | %s | %s | %s | %s |\n",
+				s.Name, s.Name, s.Rating, s.Status, dur, mdEscapeBar(s.Summary))
 		}
 	}
 	return b.String()

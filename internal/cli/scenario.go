@@ -177,7 +177,9 @@ func runScenarios(ctx context.Context, out io.Writer, args []string, f *scenario
 	skipped := 0
 	var entries []scenarios.SummaryEntry
 	for _, s := range todo {
+		scnStart := time.Now()
 		r := scenarios.Run(sctx, s)
+		dur := time.Since(scnStart).Truncate(time.Second).String()
 		switch r.Status {
 		case "failed":
 			failed++
@@ -185,10 +187,11 @@ func runScenarios(ctx context.Context, out io.Writer, args []string, f *scenario
 			skipped++
 		}
 		entries = append(entries, scenarios.SummaryEntry{
-			Name:    s.Name(),
-			Rating:  string(s.Rating()),
-			Status:  r.Status,
-			Summary: r.Summary,
+			Name:     s.Name(),
+			Rating:   string(s.Rating()),
+			Status:   r.Status,
+			Duration: dur,
+			Summary:  r.Summary,
 		})
 		fmt.Fprintln(out)
 	}

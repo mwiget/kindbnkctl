@@ -451,6 +451,156 @@ func sortKeyPods(p []PodInfo) {
 	})
 }
 
+// renderTopologyDiagram emits an ASCII block diagram of the kind
+// cluster: one box per node with its key F5 pods listed underneath.
+// Wrapped in a code fence by the caller; never escapes the table
+// view. Best-effort: empty fields render gracefully.
+func renderTopologyDiagram(e *EnvInfo) string {
+	var b strings.Builder
+	cluster := e.KindClusterName
+	if cluster == "" {
+		cluster = "kind cluster"
+	} else {
+		cluster = "kind cluster: " + cluster
+	}
+	// Group key pods by node name.
+	byNode := map[string][]PodInfo{}
+	for _, p := range e.KeyPods {
+		byNode[p.Node] = append(byNode[p.Node], p)
+	}
+
+	// Compute width: longest "ns/pod  ready  status" line, with a sane min.
+	maxLine := len(cluster) + 4
+	for _, pods := range byNode {
+		for _, p := range pods {
+			line := fmt.Sprintf("%s/%s  %s %s",
+				p.Namespace, trimHash(p.Name), p.Ready, p.Status)
+			if l := len(line); l > maxLine {
+				maxLine = l
+			}
+		}
+	}
+	for _, n := range e.Nodes {
+		label := fmt.Sprintf("%s  (%s · Ready=%s · %s · %d pods)",
+			n.Name, n.Role, n.Ready, n.K8sVersion, n.Pods)
+		if l := len(label); l > maxLine {
+			maxLine = l
+		}
+	}
+	width := maxLine + 4 // 2 chars padding each side
+	if width < 64 {
+		width = 64
+	}
+
+	// Top frame.
+	header := " " + cluster + " "
+	pad := width - 4 - len(header)
+	if pad < 0 {
+		pad = 0
+	}
+	fmt.Fprintf(&b, "┌─%s%s─┐\n", header, strings.Repeat("─", pad))
+
+	for i, n := range e.Nodes {
+		label := fmt.Sprintf("%s  (%s · Ready=%s · %s · %d pods)",
+			n.Name, n.Role, n.Ready, n.K8sVersion, n.Pods)
+		writeBoxLine(&b, label, width)
+		pods := byNode[n.Name]
+		for j, p := range pods {
+			prefix := "├─"
+			if j == len(pods)-1 {
+				prefix = "└─"
+			}
+			line := fmt.Sprintf("   %s %s/%s  %s %s",
+				prefix, p.Namespace, trimHash(p.Name), p.Ready, p.Status)
+			writeBoxLine(&b, line, width)
+		}
+		if i < len(e.Nodes)-1 {
+			writeBoxLine(&b, "", width)
+		}
+	}
+
+	// Bottom frame.
+	fmt.Fprintf(&b, "└%s┘\n", strings.Repeat("─", width-2))
+	return b.String()
+}
+
+// writeBoxLine pads `s` to width-4 chars and surrounds with "│ " / " │"
+// so each line is exactly `width` runes including the borders.
+func writeBoxLine(b *strings.Builder, s string, width int) {
+	inner := width - 4
+	if len(s) > inner {
+		s = s[:inner]
+	}
+	fmt.Fprintf(b, "│ %-*s │\n", inner, s)
+}
+
+// trimHash strips Kubernetes auto-generated suffixes from a pod
+// name so the diagram shows e.g. `f5-tmm` instead of
+// `f5-tmm-86d57455b8-bfzx2`. Recognizes:
+//   - Deployment-owned: <stem>-<8-11 hex chars>-<5 lc alnum>
+//   - DaemonSet/Job-owned: <stem>-<5 lc alnum>
+// Leaves StatefulSet pods (e.g. `f5-dssm-db-0`) untouched so the
+// ordinal stays visible.
+func trimHash(name string) string {
+	parts := strings.Split(name, "-")
+	if len(parts) >= 3 {
+		last := parts[len(parts)-1]
+		prev := parts[len(parts)-2]
+		if looksLikePodHash(last) && looksLikeRSHash(prev) {
+			return strings.Join(parts[:len(parts)-2], "-")
+		}
+		if looksLikePodHash(last) && !isStatefulOrdinal(last) {
+			return strings.Join(parts[:len(parts)-1], "-")
+		}
+	}
+	return name
+}
+
+// looksLikePodHash: exactly 5 chars, lowercase alphanumeric.
+// kubelet uses the alphabet [bcdfghjklmnpqrstvwxz2456789] — a strict
+// match against THAT set would be more accurate, but length=5 +
+// lowercase alnum is cheap and unambiguous enough in practice.
+func looksLikePodHash(s string) bool {
+	if len(s) != 5 {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
+// looksLikeRSHash: 8-11 chars, all [0-9a-f] — Deployment pod-template
+// hash is an FNV-1a32 rendered in hex, always lower-case hex.
+func looksLikeRSHash(s string) bool {
+	if len(s) < 8 || len(s) > 11 {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// isStatefulOrdinal returns true for purely numeric suffixes like
+// `0`, `1`, `2` — StatefulSet ordinals we want to keep so the
+// diagram shows db-0 / db-1 / db-2 distinctly.
+func isStatefulOrdinal(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // renderEnvironment produces the "## Environment" markdown section
 // for inclusion in a run report. Empty fields render as "—" so the
 // reader can tell at a glance which probes didn't run (e.g. cluster
@@ -500,6 +650,11 @@ func renderEnvironment(e *EnvInfo) string {
 	b.WriteString("\n")
 
 	if len(e.Nodes) > 0 {
+		b.WriteString("### Topology diagram\n\n")
+		b.WriteString("```\n")
+		b.WriteString(renderTopologyDiagram(e))
+		b.WriteString("```\n\n")
+
 		b.WriteString("### Cluster nodes\n\n")
 		b.WriteString("| Node | Role | Ready | Kubelet | Runtime | Pods |\n")
 		b.WriteString("|---|---|---|---|---|---:|\n")

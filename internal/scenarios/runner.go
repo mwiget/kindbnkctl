@@ -131,10 +131,11 @@ type RunSummary struct {
 
 // SummaryEntry is one row in RunSummary.Scenarios.
 type SummaryEntry struct {
-	Name    string `json:"name"`
-	Rating  string `json:"rating"`
-	Status  string `json:"status"`
-	Summary string `json:"summary"`
+	Name     string `json:"name"`
+	Rating   string `json:"rating"`
+	Status   string `json:"status"`
+	Duration string `json:"duration,omitempty"`
+	Summary  string `json:"summary"`
 }
 
 // WriteRunSummary persists the aggregate as
@@ -166,11 +167,15 @@ func WriteRunSummary(pocDir, pocName, stamp string, sum RunSummary) (string, err
 	fmt.Fprintf(&b, "- duration: %s\n", sum.Duration)
 	fmt.Fprintf(&b, "- total: %d   passed: %d   failed: %d   skipped: %d\n\n",
 		sum.Total, sum.Passed, sum.Failed, sum.Skipped)
-	fmt.Fprintln(&b, "| Scenario | Rating | Status | Summary |")
-	fmt.Fprintln(&b, "|---|---|---|---|")
+	fmt.Fprintln(&b, "| Scenario | Rating | Status | Duration | Summary |")
+	fmt.Fprintln(&b, "|---|---|---|---|---|")
 	for _, e := range sum.Scenarios {
-		fmt.Fprintf(&b, "| [`%s`](scenarios/%s.json) | %s | %s | %s |\n",
-			e.Name, e.Name, e.Rating, e.Status, mdEscape(e.Summary))
+		dur := e.Duration
+		if dur == "" {
+			dur = "—"
+		}
+		fmt.Fprintf(&b, "| [`%s`](scenarios/%s.json) | %s | %s | %s | %s |\n",
+			e.Name, e.Name, e.Rating, e.Status, dur, mdEscape(e.Summary))
 	}
 	return base, os.WriteFile(filepath.Join(dir, base+".md"), []byte(b.String()), 0o644)
 }
