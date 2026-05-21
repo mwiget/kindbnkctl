@@ -88,6 +88,11 @@ type Context struct {
 	// Verbose: surface per-assertion lines + Result.Details to Out.
 	// JSON report always carries them regardless.
 	Verbose bool
+	// ReportStamp, if non-empty, forces every scenario in this run
+	// to share the same reports/<stamp>/ directory — used by `--all`
+	// so the aggregate summary lives next to all per-scenario JSONs.
+	// Empty means each scenario picks its own timestamp.
+	ReportStamp string
 }
 
 // Scenario is the interface every test case implements. Methods are

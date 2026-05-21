@@ -24,7 +24,7 @@ func Run(ctx *Context, s Scenario) Result {
 			Summary: "rated red — not testable in the kindbnkctl 2-node / demo-TMM shape",
 			Details: s.Description(),
 		}
-		writeReport(ctx.PoCDir, s.Name(), r, started)
+		writeReport(ctx.PoCDir, ctx.ReportStamp, s.Name(), r, started)
 		fmt.Fprintln(ctx.Out, "SKIPPED — see report")
 		return r
 	}
@@ -47,7 +47,7 @@ func Run(ctx *Context, s Scenario) Result {
 			Summary:  fmt.Sprintf("%d manifest(s) rendered; nothing applied", len(paths)),
 			Manifest: strings.Join(paths, ","),
 		}
-		writeReport(ctx.PoCDir, s.Name(), r, started)
+		writeReport(ctx.PoCDir, ctx.ReportStamp, s.Name(), r, started)
 		return r
 	}
 
@@ -66,7 +66,7 @@ func Run(ctx *Context, s Scenario) Result {
 }
 
 func finalize(ctx *Context, s Scenario, started time.Time, r Result) Result {
-	writeReport(ctx.PoCDir, s.Name(), r, started)
+	writeReport(ctx.PoCDir, ctx.ReportStamp, s.Name(), r, started)
 	if ctx.Verbose && len(r.Assertions) > 0 {
 		for _, a := range r.Assertions {
 			mark := "✓"
@@ -88,20 +88,23 @@ func finalize(ctx *Context, s Scenario, started time.Time, r Result) Result {
 }
 
 // writeReport persists the result as JSON under
-// <PoCDir>/reports/<RFC3339-timestamp>/scenarios/<name>.json. Same
-// reports/ tree as e2e so the operator has one place to look. Errors
-// are warned, not raised — a missing report shouldn't fail the run.
-func writeReport(pocDir, name string, r Result, started time.Time) {
-	stamp := started.UTC().Format("2006-01-02T15-04-05Z")
+// <PoCDir>/reports/<stamp>/scenarios/<name>.json. If stamp is empty,
+// the scenario's started-at time is used; --all passes a shared stamp
+// so every scenario in the run lands in one dir alongside run.{json,md}.
+// Errors are warned, not raised — a missing report shouldn't fail the run.
+func writeReport(pocDir, stamp, name string, r Result, started time.Time) {
+	if stamp == "" {
+		stamp = started.UTC().Format("2006-01-02T15-04-05Z")
+	}
 	dir := filepath.Join(pocDir, "reports", stamp, "scenarios")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return
 	}
 	full := struct {
 		Result
-		Scenario  string        `json:"scenario"`
-		StartedAt time.Time     `json:"started_at"`
-		Duration  string        `json:"duration"`
+		Scenario  string    `json:"scenario"`
+		StartedAt time.Time `json:"started_at"`
+		Duration  string    `json:"duration"`
 	}{
 		Result:    r,
 		Scenario:  name,
@@ -110,6 +113,63 @@ func writeReport(pocDir, name string, r Result, started time.Time) {
 	}
 	data, _ := json.MarshalIndent(full, "", "  ")
 	_ = os.WriteFile(filepath.Join(dir, name+".json"), data, 0o644)
+}
+
+// RunSummary is the aggregate report `--all` writes at the end of a
+// multi-scenario run. One row per scenario; status counts up top so a
+// human or CI can read it in 5 seconds.
+type RunSummary struct {
+	StartedAt time.Time      `json:"started_at"`
+	Finished  time.Time      `json:"finished_at"`
+	Duration  string         `json:"duration"`
+	Total     int            `json:"total"`
+	Passed    int            `json:"passed"`
+	Failed    int            `json:"failed"`
+	Skipped   int            `json:"skipped"`
+	Scenarios []SummaryEntry `json:"scenarios"`
+}
+
+// SummaryEntry is one row in RunSummary.Scenarios.
+type SummaryEntry struct {
+	Name    string `json:"name"`
+	Rating  string `json:"rating"`
+	Status  string `json:"status"`
+	Summary string `json:"summary"`
+}
+
+// WriteRunSummary persists the aggregate run.json + run.md under
+// <PoCDir>/reports/<stamp>/. Best-effort: errors are returned but the
+// caller is expected to keep going (we already have per-scenario JSONs).
+func WriteRunSummary(pocDir, stamp string, sum RunSummary) error {
+	dir := filepath.Join(pocDir, "reports", stamp)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(sum, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "run.json"), data, 0o644); err != nil {
+		return err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "# scenario run %s\n\n", stamp)
+	fmt.Fprintf(&b, "- started:  %s\n", sum.StartedAt.Format(time.RFC3339))
+	fmt.Fprintf(&b, "- finished: %s\n", sum.Finished.Format(time.RFC3339))
+	fmt.Fprintf(&b, "- duration: %s\n", sum.Duration)
+	fmt.Fprintf(&b, "- total: %d   passed: %d   failed: %d   skipped: %d\n\n",
+		sum.Total, sum.Passed, sum.Failed, sum.Skipped)
+	fmt.Fprintln(&b, "| Scenario | Rating | Status | Summary |")
+	fmt.Fprintln(&b, "|---|---|---|---|")
+	for _, e := range sum.Scenarios {
+		fmt.Fprintf(&b, "| [`%s`](scenarios/%s.json) | %s | %s | %s |\n",
+			e.Name, e.Name, e.Rating, e.Status, mdEscape(e.Summary))
+	}
+	return os.WriteFile(filepath.Join(dir, "run.md"), []byte(b.String()), 0o644)
+}
+
+func mdEscape(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, "|", `\|`), "\n", " ")
 }
 
 // Cleanup runs the scenario's Cleanup hook and emits a one-line

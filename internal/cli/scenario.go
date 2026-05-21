@@ -6,6 +6,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -160,6 +161,9 @@ func runScenarios(ctx context.Context, out io.Writer, args []string, f *scenario
 			return err
 		}
 		todo = ordered
+		// One shared stamp so every per-scenario JSON + the run.json
+		// aggregate land in the same reports/<stamp>/ dir.
+		sctx.ReportStamp = time.Now().UTC().Format("2006-01-02T15-04-05Z")
 	} else {
 		s := scenarios.Find(args[0])
 		if s == nil {
@@ -168,14 +172,47 @@ func runScenarios(ctx context.Context, out io.Writer, args []string, f *scenario
 		todo = append(todo, s)
 	}
 
+	runStart := time.Now().UTC()
 	failed := 0
+	skipped := 0
+	var entries []scenarios.SummaryEntry
 	for _, s := range todo {
 		r := scenarios.Run(sctx, s)
-		if r.Status == "failed" {
+		switch r.Status {
+		case "failed":
 			failed++
+		case "skipped":
+			skipped++
 		}
+		entries = append(entries, scenarios.SummaryEntry{
+			Name:    s.Name(),
+			Rating:  string(s.Rating()),
+			Status:  r.Status,
+			Summary: r.Summary,
+		})
 		fmt.Fprintln(out)
 	}
+
+	if f.all && sctx.ReportStamp != "" {
+		finished := time.Now().UTC()
+		sum := scenarios.RunSummary{
+			StartedAt: runStart,
+			Finished:  finished,
+			Duration:  finished.Sub(runStart).Truncate(time.Second).String(),
+			Total:     len(entries),
+			Passed:    len(entries) - failed - skipped,
+			Failed:    failed,
+			Skipped:   skipped,
+			Scenarios: entries,
+		}
+		if err := scenarios.WriteRunSummary(repo, sctx.ReportStamp, sum); err != nil {
+			fmt.Fprintf(out, "warning: writing run summary: %v\n", err)
+		} else {
+			fmt.Fprintf(out, "summary: reports/%s/run.{json,md}  —  %d passed, %d failed, %d skipped (%s)\n",
+				sctx.ReportStamp, sum.Passed, sum.Failed, sum.Skipped, sum.Duration)
+		}
+	}
+
 	if failed > 0 {
 		return fmt.Errorf("%d scenario(s) failed", failed)
 	}
