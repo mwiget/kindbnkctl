@@ -8,6 +8,11 @@ on:
 permissions:
   contents: write
 
+env:
+  # Opt in to Node.js 24 ahead of the 2026-06-02 forced flip.
+  # Affects actions/checkout@v4, actions/setup-go@v5, goreleaser-action@v6.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
