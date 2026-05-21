@@ -22,7 +22,7 @@ PoC:        smoke  (BNK 2.3.0)
       | 
       | kubectl cluster-info --context kind-smoke
       | 
-      | Have a nice day! 👋
+      | Not sure what to do next? 😅  Check out https://kind.sigs.k8s.io/docs/user/quick-start/
 [3/6] Fetching kubeconfig ...
       /tmp/kindbnkctl-smoke/artifacts/kubeconfig
 [4/6] Applying Calico CNI + NetworkAttachmentDefinition CRD ...
@@ -63,8 +63,8 @@ PoC:        smoke  (BNK 2.3.0)
       | node/smoke-worker labeled
 [6/6] bnk-forge registration ...
   bnk-forge is up at https://localhost.
-      created bnk-forge project "smoke" (id=6)
-      registered cluster "smoke" (id=6). open https://localhost
+      created bnk-forge project "smoke" (id=7)
+      registered cluster "smoke" (id=7). open https://localhost
       poc.yaml updated
 
 DONE.  Next: `kindbnkctl deploy prereqs && deploy flo && deploy cne` (or run e2e).

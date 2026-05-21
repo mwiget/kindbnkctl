@@ -20,7 +20,7 @@
     {
       "description": "ZeBOS in TMM sees neighbor on bnk-bgp bridge",
       "ok": true,
-      "got": "BGP router identifier 10.244.239.233, local AS number 65000 BGP table version is 3 2 BGP AS-PATH entries 0 BGP community entries Neighbor V AS MsgRcv MsgSen TblVer InQ OutQ Up/Down State/PfxRcd 192.16…"
+      "got": "BGP router identifier 10.244.239.229, local AS number 65000 BGP table version is 3 2 BGP AS-PATH entries 0 BGP community entries Neighbor V AS MsgRcv MsgSen TblVer InQ OutQ Up/Down State/PfxRcd 192.16…"
     },
     {
       "description": "BGP session Established between FRR and TMM/ZeBOS",
@@ -35,6 +35,6 @@
   ],
   "manifest_path": "/tmp/kindbnkctl-smoke/artifacts/scenarios/bgp-peer-frr/01-namespace.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/bgp-peer-frr/02-nad.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/bgp-peer-frr/03-frr-config.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/bgp-peer-frr/04-frr.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/bgp-peer-frr/05-zebos-template.yaml.tmpl",
   "scenario": "bgp-peer-frr",
-  "started_at": "2026-05-21T09:53:55.308198064Z",
+  "started_at": "2026-05-21T11:17:17.963457673Z",
   "duration": "3m21s"
 }
