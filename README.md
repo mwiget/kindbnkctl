@@ -509,6 +509,32 @@ we'd rather not bake in. Operators can run the kill manually
 after the scenario and inspect the kind worker container's
 filesystem to confirm capture.
 
+## Reference run report
+
+A complete `e2e --with-scenarios` report from a clean cluster
+is checked in at
+[`examples/reports/run-smoke-2026-05-21T09-25-03Z.md`](examples/reports/run-smoke-2026-05-21T09-25-03Z.md)
+so a reader can see the full report shape (versions, host
+resources, cluster topology, F5 control-plane pods, namespaced
+pod counts, every deploy phase, and every scenario row) without
+running anything locally.
+
+Reproduce on your own host with:
+
+```bash
+kindbnkctl e2e \
+  --poc <pocdir> \
+  --yolo --confirm-cluster <pocname> \
+  --with-scenarios \
+  --no-resume
+```
+
+Output lands at `<pocdir>/reports/<stamp>/run-<pocname>-<stamp>.md`
+(plus the JSON twin and per-scenario JSONs under `scenarios/`).
+Expect ~15 minutes total on a warm Docker cache: ~6 minutes deploy
+(validate → cluster-up → deploy-prereqs/flo/cne) plus ~8 minutes
+running the eight green scenarios in topo-sorted dependency order.
+
 ## Testing
 
 ```bash
