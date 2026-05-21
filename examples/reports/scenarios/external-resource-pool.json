@@ -1,0 +1,38 @@
+{
+  "status": "ok",
+  "summary": "Pool reconciled, BGP route present, 5/5 curls to ext-backend via Pool succeeded",
+  "assertions": [
+    {
+      "description": "ext-backend Deployment Available",
+      "ok": true
+    },
+    {
+      "description": "Gateway Programmed=True",
+      "ok": true
+    },
+    {
+      "description": "HTTPRoute Accepted=True",
+      "ok": true,
+      "got": "True"
+    },
+    {
+      "description": "Pool CR has at least one member entry on :80",
+      "ok": true,
+      "got": "10.244.239.255:80"
+    },
+    {
+      "description": "FRR BGP table has 203.0.113.101/32 advertised by TMM",
+      "ok": true,
+      "got": "BGP table version is 17, local router ID is 192.168.99.20, vrf id 0 Default local pref 100, local AS 65001 Status codes: s suppressed, d damped, h history, * valid, \u003e best, = multipath, i internal, r …"
+    },
+    {
+      "description": "5/5 curls via Gateway return ext-backend marker body",
+      "ok": true,
+      "got": "5/5 curls returned marker"
+    }
+  ],
+  "manifest_path": "/tmp/kindbnkctl-smoke/artifacts/scenarios/external-resource-pool/01-namespace.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/external-resource-pool/02-bnkgateway.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/external-resource-pool/03-backend.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/external-resource-pool/04-gateway.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/external-resource-pool/05-pool.yaml.tmpl,/tmp/kindbnkctl-smoke/artifacts/scenarios/external-resource-pool/06-httproute.yaml",
+  "scenario": "external-resource-pool",
+  "started_at": "2026-05-21T10:01:50.254219501Z",
+  "duration": "20s"
+}

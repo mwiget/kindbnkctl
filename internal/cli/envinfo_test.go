@@ -279,7 +279,6 @@ func TestRenderEnvironment_WithTopology(t *testing.T) {
 	for _, want := range []string{
 		"### Cluster nodes",
 		"### F5 control-plane pods",
-		"### Pods by namespace",
 		"smoke-control-plane",
 		"smoke-worker",
 		"control-plane",
@@ -289,6 +288,10 @@ func TestRenderEnvironment_WithTopology(t *testing.T) {
 		if !strings.Contains(md, want) {
 			t.Errorf("renderEnvironment missing %q in:\n%s", want, md)
 		}
+	}
+	// "Pods by namespace" section was dropped — confirm it doesn't sneak back.
+	if strings.Contains(md, "Pods by namespace") {
+		t.Errorf("Pods by namespace section should no longer render")
 	}
 }
 

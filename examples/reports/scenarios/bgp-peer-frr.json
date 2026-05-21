@@ -1,0 +1,40 @@
+{
+  "status": "ok",
+  "summary": "BGP Established over Multus NAD; routes exchanged TMM ↔ FRR",
+  "assertions": [
+    {
+      "description": "Multus DaemonSet Ready",
+      "ok": true,
+      "got": "2/2"
+    },
+    {
+      "description": "FRR pod has net1 on the bnk-bgp bridge (192.168.99.0/24)",
+      "ok": true,
+      "got": "192.168.99.20"
+    },
+    {
+      "description": "TMM pod has net1 on the bnk-bgp bridge",
+      "ok": true,
+      "got": "192.168.99.21"
+    },
+    {
+      "description": "ZeBOS in TMM sees neighbor on bnk-bgp bridge",
+      "ok": true,
+      "got": "BGP router identifier 10.244.239.233, local AS number 65000 BGP table version is 3 2 BGP AS-PATH entries 0 BGP community entries Neighbor V AS MsgRcv MsgSen TblVer InQ OutQ Up/Down State/PfxRcd 192.16…"
+    },
+    {
+      "description": "BGP session Established between FRR and TMM/ZeBOS",
+      "ok": true,
+      "got": "IPv4 Unicast Summary (VRF default): BGP router identifier 192.168.99.20, local AS number 65001 vrf-id 0 BGP table version 3 RIB entries 5, using 480 bytes of memory Peers 1, using 13 KiB of memory Peer groups 1, using 64 bytes of memory Neighbor V AS…"
+    },
+    {
+      "description": "FRR BGP table has at least one prefix learned from TMM",
+      "ok": true,
+      "got": "BGP table version is 3, local router ID is 192.168.99.20, vrf id 0 Default local pref 100, local AS 65001 Status codes: s suppressed, d damped, h history, * valid, \u003e best, = multipath, i internal, r RIB-failure, S Stale, R Removed Nexthop codes: @NNN…"
+    }
+  ],
+  "manifest_path": "/tmp/kindbnkctl-smoke/artifacts/scenarios/bgp-peer-frr/01-namespace.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/bgp-peer-frr/02-nad.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/bgp-peer-frr/03-frr-config.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/bgp-peer-frr/04-frr.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/bgp-peer-frr/05-zebos-template.yaml.tmpl",
+  "scenario": "bgp-peer-frr",
+  "started_at": "2026-05-21T09:53:55.308198064Z",
+  "duration": "3m21s"
+}

@@ -147,13 +147,13 @@ func collectClusterInfo(ctx context.Context, kubectl func(args ...string) (strin
 			}
 		}
 	}
-	// kind cluster name: read from any node label, all kind nodes
-	// share `kind.x-k8s.io/cluster-name: <name>`.
-	if v, err := kubectl("get", "node", "-o",
-		`jsonpath={.items[0].metadata.labels.kind\.x-k8s\.io/cluster-name}`); err == nil {
-		if v = strings.TrimSpace(v); v != "" {
-			e.KindClusterName = v
-		}
+	// kind cluster name: derive from the current kubeconfig context.
+	// kind names contexts `kind-<clustername>`, so the prefix-strip
+	// gives us the cluster name without relying on node labels
+	// (which kind doesn't always add).
+	if v, err := kubectl("config", "current-context"); err == nil {
+		v = strings.TrimSpace(v)
+		e.KindClusterName = strings.TrimPrefix(v, "kind-")
 	}
 
 	// Nodes + topology.
@@ -677,13 +677,5 @@ func renderEnvironment(e *EnvInfo) string {
 		b.WriteString("\n")
 	}
 
-	if len(e.PodNamespace) > 0 {
-		b.WriteString("### Pods by namespace\n\n")
-		b.WriteString("| Namespace | Pods |\n|---|---:|\n")
-		for _, n := range e.PodNamespace {
-			fmt.Fprintf(&b, "| %s | %d |\n", n.Namespace, n.Count)
-		}
-		b.WriteString("\n")
-	}
 	return b.String()
 }

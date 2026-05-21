@@ -603,10 +603,24 @@ func renderRunMarkdown(r runReport) string {
 		fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |\n",
 			ph.Index, ph.Phase, ph.Status, dur, lg)
 	}
+	// When scenarios ran, surface them as a single row at the bottom
+	// of the deploy phases table so the column sum matches the wall
+	// time at the top. Status aggregates failed > skipped > ok.
+	if len(r.Scenarios) > 0 {
+		status := "ok"
+		switch {
+		case scFailed > 0:
+			status = "failed"
+		case scSkipped > 0 && scOK == 0:
+			status = "skipped"
+		}
+		fmt.Fprintf(&b, "| %d | scenarios (%d) | %s | %s | — |\n",
+			len(r.Phases)+1, len(r.Scenarios), status,
+			sumDurations(scenarioDurations(r.Scenarios)))
+	}
 
 	if len(r.Scenarios) > 0 {
-		fmt.Fprintf(&b, "\n## Scenarios\n\n%d ok, %d failed, %d skipped\n\n",
-			scOK, scFailed, scSkipped)
+		b.WriteString("\n## Scenarios\n\n")
 		b.WriteString("| Scenario | Rating | Status | Duration | Summary |\n")
 		b.WriteString("|---|---|---|---|---|\n")
 		for _, s := range r.Scenarios {
@@ -619,6 +633,33 @@ func renderRunMarkdown(r runReport) string {
 		}
 	}
 	return b.String()
+}
+
+func scenarioDurations(ss []scenarios.SummaryEntry) []string {
+	out := make([]string, 0, len(ss))
+	for _, s := range ss {
+		if s.Duration != "" {
+			out = append(out, s.Duration)
+		}
+	}
+	return out
+}
+
+// sumDurations parses each Go-format duration string (e.g. "3m20s",
+// "47s") and returns the sum formatted with the same truncation as
+// the per-phase rows. Unparseable inputs are skipped silently —
+// pre-existing behavior for missing fields was already "—".
+func sumDurations(ds []string) string {
+	var total time.Duration
+	for _, s := range ds {
+		if d, err := time.ParseDuration(s); err == nil {
+			total += d
+		}
+	}
+	if total == 0 {
+		return "—"
+	}
+	return total.Truncate(time.Second).String()
 }
 
 func mdEscapeBar(s string) string {
