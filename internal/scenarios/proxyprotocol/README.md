@@ -118,12 +118,61 @@ injection primitive at all**. The validator accepts `TCP::respond`
 but its runtime is a stub. Alternative names (`TCP::send`,
 `TCP::write`) don't exist in the dispatch table.
 
+### Re-investigation 2026-05-21 — direct gRPC-trace evidence
+
+Read the actual gRPC config FLO pushes to TMM for our scenario
+(scraped from `f5-cne-controller -c f5-cne-controller` logs).
+The relevant block:
+
+```json
+{
+  "@type": "type.googleapis.com/declTmm.profile_bigproto",
+  "name": "scn-proxy-...-profile_bigproto",
+  "rcvwnd": 65535,
+  "idle_timeout": 300,
+  "tcp_handshake_timeout": 5,
+  "syncookie_enable": true,
+  ...
+},
+{
+  "@type": "type.googleapis.com/declTmm.virtual_server_profile",
+  "profile": "scn-proxy-...-profile_bigproto",
+  "context": "ALL",
+  "virtual_server": "scn-proxy-...-vs"
+},
+{
+  "@type": "type.googleapis.com/declTmm.virtual_server",
+  "id":   "scn-proxy-...-vs",
+  "irules_reference": ["scn-proxy-pp-prepend"],
+  ...
+}
+```
+
+This makes the diagnosis concrete:
+
+- The only TCP-profile type FLO emits is `profile_bigproto`.
+  There is **no `profile_tcp`** option in the FLO render path,
+  and no L4Route field that would select one.
+- `virtual_server_profile.context="ALL"` is hard-coded for the
+  L4Route case — bigproto applies to both directions of the flow.
+- The iRule attachment via `virtual_server.irules_reference` works
+  exactly as documented, but the iRule body runs inside the
+  bigproto profile's TCP state machine, where `TCP::respond` is
+  the stub described above.
+
+CRD survey confirmed there is **no Big-IP-style transport
+profile CR** in BNK 2.3: the entire `f5-big-*-profiles` API
+group ships only `F5BigAccessProfile` (APM) and
+`F5BigLogProfile` (logging). Neither is a transport-layer
+profile we could attach to a virtual server. No
+`F5BigTcpProfile` / `F5BigCneProxyProfile` exists.
+
 ### What lifting to green would require
 
-- F5 to implement `TCP::respond` (or an equivalent) in BNK's
-  L4Route data-plane, OR
-- BNK to expose a profile-switch on the Gateway listener so
-  we can pin a standard TCP profile, OR
+- F5 to implement `TCP::respond` (or an equivalent injection
+  primitive) inside `profile_bigproto`, OR
+- F5 to ship a transport-profile CR + a knob on L4Route /
+  F5BnkGateway to pin a non-bigproto profile, OR
 - document an alternative pattern we haven't found.
 
 None of those are scenario-side workarounds. Amber stays.
