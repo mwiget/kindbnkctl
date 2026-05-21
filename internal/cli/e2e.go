@@ -546,18 +546,40 @@ func renderRunMarkdown(r runReport) string {
 	fmt.Fprintf(&b, "- **Wall:** %s\n", r.FinishedAt.Sub(r.StartedAt).Truncate(time.Second))
 	fmt.Fprintf(&b, "- **kindbnkctl:** %s (BNK %s, manifest %s)\n\n",
 		version.Version, version.BNKVersion, version.CNEManifestVersion)
-	ok, failed, skipped := 0, 0, 0
+	phaseOK, phaseFailed, phaseSkipped := 0, 0, 0
 	for _, ph := range r.Phases {
 		switch ph.Status {
 		case "ok":
-			ok++
+			phaseOK++
 		case "failed":
-			failed++
+			phaseFailed++
 		case "skipped":
-			skipped++
+			phaseSkipped++
 		}
 	}
-	fmt.Fprintf(&b, "**Result:** %d ok, %d failed, %d skipped\n\n", ok, failed, skipped)
+	scOK, scFailed, scSkipped := 0, 0, 0
+	for _, s := range r.Scenarios {
+		switch s.Status {
+		case "ok":
+			scOK++
+		case "failed":
+			scFailed++
+		case "skipped":
+			scSkipped++
+		}
+	}
+	totalOK := phaseOK + scOK
+	totalFailed := phaseFailed + scFailed
+	totalSkipped := phaseSkipped + scSkipped
+	if len(r.Scenarios) > 0 {
+		fmt.Fprintf(&b,
+			"**Result:** %d ok, %d failed, %d skipped (deploy %d/%d ok · scenarios %d/%d ok)\n\n",
+			totalOK, totalFailed, totalSkipped,
+			phaseOK, len(r.Phases), scOK, len(r.Scenarios))
+	} else {
+		fmt.Fprintf(&b, "**Result:** %d ok, %d failed, %d skipped\n\n",
+			totalOK, totalFailed, totalSkipped)
+	}
 
 	if r.Environment != nil {
 		b.WriteString(renderEnvironment(r.Environment))
@@ -580,19 +602,8 @@ func renderRunMarkdown(r runReport) string {
 	}
 
 	if len(r.Scenarios) > 0 {
-		sOK, sFailed, sSkipped := 0, 0, 0
-		for _, s := range r.Scenarios {
-			switch s.Status {
-			case "ok":
-				sOK++
-			case "failed":
-				sFailed++
-			case "skipped":
-				sSkipped++
-			}
-		}
 		fmt.Fprintf(&b, "\n## Scenarios\n\n%d ok, %d failed, %d skipped\n\n",
-			sOK, sFailed, sSkipped)
+			scOK, scFailed, scSkipped)
 		b.WriteString("| Scenario | Rating | Status | Summary |\n")
 		b.WriteString("|---|---|---|---|\n")
 		for _, s := range r.Scenarios {

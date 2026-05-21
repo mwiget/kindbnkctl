@@ -4,6 +4,9 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/mwiget/kindbnkctl/internal/scenarios"
 )
 
 func TestCollectHostInfo_PopulatesCompiledInFields(t *testing.T) {
@@ -286,6 +289,51 @@ func TestRenderEnvironment_WithTopology(t *testing.T) {
 		if !strings.Contains(md, want) {
 			t.Errorf("renderEnvironment missing %q in:\n%s", want, md)
 		}
+	}
+}
+
+func TestRenderRunMarkdown_CombinedTotal(t *testing.T) {
+	now := time.Time{}
+	r := runReport{
+		PoCName:    "smoke",
+		StartedAt:  now,
+		FinishedAt: now,
+		Phases: []phaseReport{
+			{Index: 1, Phase: "validate", Status: "ok"},
+			{Index: 2, Phase: "cluster-up", Status: "ok"},
+			{Index: 3, Phase: "deploy-prereqs", Status: "ok"},
+			{Index: 4, Phase: "deploy-flo", Status: "ok"},
+			{Index: 5, Phase: "deploy-cne", Status: "ok"},
+		},
+		Scenarios: []scenarios.SummaryEntry{
+			{Name: "bgp-peer-frr", Rating: "green", Status: "ok"},
+			{Name: "ai-semantic-cache", Rating: "green", Status: "ok"},
+			{Name: "ai-token-counting", Rating: "green", Status: "failed"},
+		},
+	}
+	md := renderRunMarkdown(r)
+	want := "**Result:** 7 ok, 1 failed, 0 skipped (deploy 5/5 ok · scenarios 2/3 ok)"
+	if !strings.Contains(md, want) {
+		t.Errorf("missing combined total %q in:\n%s", want, md)
+	}
+}
+
+func TestRenderRunMarkdown_PhaseOnlyHeader(t *testing.T) {
+	r := runReport{
+		PoCName: "smoke",
+		Phases: []phaseReport{
+			{Index: 1, Phase: "validate", Status: "ok"},
+			{Index: 2, Phase: "cluster-up", Status: "failed"},
+		},
+	}
+	md := renderRunMarkdown(r)
+	want := "**Result:** 1 ok, 1 failed, 0 skipped\n"
+	if !strings.Contains(md, want) {
+		t.Errorf("missing phase-only total %q in:\n%s", want, md)
+	}
+	// And it must NOT have the parenthesized breakdown.
+	if strings.Contains(md, "scenarios") {
+		t.Errorf("phase-only run should not mention scenarios in header")
 	}
 }
 
