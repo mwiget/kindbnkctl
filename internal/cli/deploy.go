@@ -419,7 +419,14 @@ func runDeployCNE(ctx context.Context, out io.Writer, f *deployCNEFlags) error {
 	//    by f5-cne-controller — log line: "Not able to find gatewayClass
 	//    object: bnk-gatewayclass". The GatewayClass is platform-level
 	//    infrastructure, not test scaffolding, so it belongs here.
-	fmt.Fprintln(out, "[4/5] Applying bnk-gatewayclass GatewayClass ...")
+	//
+	//    Block until f5-cne-controller has Accepted the GatewayClass —
+	//    if we declare DONE before the controller picks it up, the very
+	//    next workload to create a Gateway races the controller and the
+	//    Gateway lands in "Pending: Waiting for controller" with no
+	//    self-healing path. Treat the deploy as not-yet-successful until
+	//    this prerequisite settles.
+	fmt.Fprintln(out, "[4/5] Applying bnk-gatewayclass GatewayClass + waiting for Accepted=True ...")
 	if err := r.Apply(ctx, `apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
 metadata:
@@ -430,6 +437,11 @@ spec:
 `); err != nil {
 		return fmt.Errorf("apply bnk-gatewayclass: %w", err)
 	}
+	if err := r.Wait(ctx, "", "Accepted",
+		"gatewayclass/bnk-gatewayclass", 3*time.Minute); err != nil {
+		return fmt.Errorf("bnk-gatewayclass never reached Accepted=True (f5-cne-controller not picking it up?): %w", err)
+	}
+	fmt.Fprintln(out, "      bnk-gatewayclass Accepted=True")
 
 	// 5. Patch f5-tmm Deployment strategy to Recreate.
 	// FLO ships the Deployment with RollingUpdate (maxSurge=25%,
