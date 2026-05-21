@@ -104,10 +104,10 @@ type Scenario interface {
 	Description() string
 	// Dependencies lists other scenario names this one logically
 	// relies on (e.g. "bgp-peer-frr" if we expect BGP to already
-	// work). The runner does NOT auto-chain — this is informational,
-	// surfaced in `scenario list`. Each scenario stays self-contained
-	// in its Apply, but the hint tells the operator the test order
-	// that surfaces failures fastest.
+	// work). `scenario run --all` topo-sorts by these so deps run
+	// before their dependents. A single-name `scenario run` does
+	// NOT auto-chain — verify just surfaces "dep not running" as
+	// an assertion so the operator decides whether to start it.
 	Dependencies() []string
 
 	// Manifests renders all manifest files into <PoCDir>/artifacts/

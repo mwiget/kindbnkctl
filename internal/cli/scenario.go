@@ -89,8 +89,10 @@ func newScenarioRunCmd() *cobra.Command {
 		Use:   "run [name]",
 		Short: "Run one scenario (or --all green-rated) against the cluster",
 		Long: `Run a single scenario by name, or use --all to run every
-green-rated scenario in registration order. Red-rated scenarios are
-always skipped, even with --all.
+green-rated scenario in dependency order (so dependencies run before
+their dependents). Red-rated scenarios are always skipped, even with
+--all. A single-name run does NOT auto-chain — surface that the
+dependency isn't up rather than implicitly fixing it.
 
 Manifests are rendered into artifacts/scenarios/<name>/ before any
 cluster I/O. With --dry-run the rendered files are written but
@@ -143,15 +145,21 @@ func runScenarios(ctx context.Context, out io.Writer, args []string, f *scenario
 
 	var todo []scenarios.Scenario
 	if f.all {
+		var greens []scenarios.Scenario
 		for _, s := range scenarios.All() {
 			if s.Rating() == scenarios.Green {
-				todo = append(todo, s)
+				greens = append(greens, s)
 			}
 		}
-		if len(todo) == 0 {
+		if len(greens) == 0 {
 			fmt.Fprintln(out, "no green-rated scenarios registered")
 			return nil
 		}
+		ordered, err := topoSortByDeps(greens)
+		if err != nil {
+			return err
+		}
+		todo = ordered
 	} else {
 		s := scenarios.Find(args[0])
 		if s == nil {
@@ -172,6 +180,53 @@ func runScenarios(ctx context.Context, out io.Writer, args []string, f *scenario
 		return fmt.Errorf("%d scenario(s) failed", failed)
 	}
 	return nil
+}
+
+// topoSortByDeps returns ss in an order such that every scenario's
+// declared Dependencies() come before it. Dependencies on scenarios
+// outside ss (e.g. amber scenarios filtered out by --all) are
+// ignored — the operator runs those separately.
+func topoSortByDeps(ss []scenarios.Scenario) ([]scenarios.Scenario, error) {
+	byName := map[string]scenarios.Scenario{}
+	for _, s := range ss {
+		byName[s.Name()] = s
+	}
+	const (
+		unvisited = 0
+		visiting  = 1
+		visited   = 2
+	)
+	state := map[string]int{}
+	var out []scenarios.Scenario
+	var visit func(s scenarios.Scenario, stack []string) error
+	visit = func(s scenarios.Scenario, stack []string) error {
+		switch state[s.Name()] {
+		case visited:
+			return nil
+		case visiting:
+			return fmt.Errorf("dependency cycle among scenarios: %s -> %s",
+				strings.Join(stack, " -> "), s.Name())
+		}
+		state[s.Name()] = visiting
+		for _, dep := range s.Dependencies() {
+			d, ok := byName[dep]
+			if !ok {
+				continue
+			}
+			if err := visit(d, append(stack, s.Name())); err != nil {
+				return err
+			}
+		}
+		state[s.Name()] = visited
+		out = append(out, s)
+		return nil
+	}
+	for _, s := range ss {
+		if err := visit(s, nil); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 func newScenarioCleanCmd() *cobra.Command {
