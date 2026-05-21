@@ -387,24 +387,31 @@ Scoring of the [F5 BNK how-tos index](https://clouddocs.f5.com/bigip-next-for-ku
 
 | # | How-to | Rating | Scenario | Wall time |
 |---|---|---|---|---|
-| 1 | [Restrict access to sensitive data](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-admin-access-api.html) | 🟢 | [`cwc-admin-access`](internal/scenarios/cwcadminaccess) | 14s |
-| 2 | [Components needing cluster-wide access](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-whole-cluster.html) | 🟢 | [`cluster-wide-watch`](internal/scenarios/clusterwidewatch) | 6s |
-| 3 | [Set up dynamic routing with BGP](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-zebos-config.html) | 🟢 | [`bgp-peer-frr`](internal/scenarios/bgppeer) | 3m04s |
-| 4 | [Set up core file collection](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-coremond.html) | 🟢 | [`core-file-collection`](internal/scenarios/corefiles) | 2m49s |
-| 6 | [Configure Token Counting and Enforcement](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/configure-token-counting-and-enforcement.html) | 🟢 | [`ai-token-counting`](internal/scenarios/aitokencount) | 8s |
-| 7 | [Semantic AI Model Caching](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/ai-related-features/ai-semantic-caching.html) (sub-article of [AI Traffic Optimization](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/ai-related-features/index.html)) | 🟢 | [`ai-semantic-cache`](internal/scenarios/aisemcache) | 7s |
-| 8 | [HTTP traffic steering with Gateway API HTTPRoute](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/Configure-HTTP-traffic-steering-with-Gateway-API-HTTPRoute.html) | 🟢 | [`http-routing-e2e`](internal/scenarios/httproutee2e) | 40s |
+| 1 | [Restrict access to sensitive data](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-admin-access-api.html) | 🟢 | [`cwc-admin-access`](internal/scenarios/cwcadminaccess) | 9s |
+| 2 | [Components needing cluster-wide access](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-whole-cluster.html) | 🟢 | [`cluster-wide-watch`](internal/scenarios/clusterwidewatch) | 4s |
+| 3 | [Set up dynamic routing with BGP](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-zebos-config.html) | 🟢 | [`bgp-peer-frr`](internal/scenarios/bgppeer) | 3m19s |
+| 4 | [Set up core file collection](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/spk-coremond.html) | 🟢 | [`core-file-collection`](internal/scenarios/corefiles) | 3m01s |
+| 6 | [Configure Token Counting and Enforcement](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/configure-token-counting-and-enforcement.html) | 🟢 | [`ai-token-counting`](internal/scenarios/aitokencount) | 25s |
+| 7 | [Semantic AI Model Caching](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/ai-related-features/ai-semantic-caching.html) (sub-article of [AI Traffic Optimization](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/ai-related-features/index.html)) | 🟢 | [`ai-semantic-cache`](internal/scenarios/aisemcache) | 22s |
+| 8 | [HTTP traffic steering with Gateway API HTTPRoute](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/Configure-HTTP-traffic-steering-with-Gateway-API-HTTPRoute.html) | 🟢 | [`http-routing-e2e`](internal/scenarios/httproutee2e) | 21s |
 | 9 | [Proxy Protocol iRule support for L4 routes](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/proxy-protocol.html) | 🟡 | [`proxy-protocol-l4`](internal/scenarios/proxyprotocol) | 24s |
-| 10 | [Load Balance Traffic to External Resources](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/configure-external-resource-load-balancing.html) | 🟢 | [`external-resource-pool`](internal/scenarios/extrespool) | 25s |
+| 10 | [Load Balance Traffic to External Resources](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/configure-external-resource-load-balancing.html) | 🟢 | [`external-resource-pool`](internal/scenarios/extrespool) | 14s |
 
 Wall times measured on a fresh `e2e` (cluster destroy + redeploy)
-running 2026-05-20 on a Linux laptop. The two TMM-restarting
+running 2026-05-21 on a Linux laptop. The two TMM-restarting
 scenarios (`bgp-peer-frr` + `core-file-collection`) dominate at
 ~3 minutes each; the others are tens of seconds because they
 either don't touch TMM or piggyback on the bridge already up.
-Cluster bring-up itself (`kindbnkctl e2e`) is **5m00s**:
-validate 0s · cluster-up 49s · deploy-prereqs 19s · deploy-flo
-23s · deploy-cne 3m27s.
+`kindbnkctl scenario run --all` completes the eight green
+scenarios in **7m58s** (topo-sorted, deps before dependents),
+writing an aggregate `reports/<stamp>/run.{json,md}` summary
+alongside the per-scenario JSONs.
+
+Cluster bring-up itself (`kindbnkctl e2e`) is **5m44s**:
+validate 0s · cluster-up 48s · deploy-prereqs 20s · deploy-flo
+24s · deploy-cne 4m12s (includes waiting on `bnk-gatewayclass`
+to reach `Accepted=True` — required to keep first-run scenario
+Gateways from being marked-for-deletion by the controller).
 
 How-tos **#5** ([DOCA Offloads on DPU](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/traffic-offload.html)),
 **#11** ([Static Active-Standby Interface Bonding](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/configure-static-active-standby-bonding.html)),
