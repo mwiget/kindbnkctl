@@ -197,6 +197,11 @@ func runE2E(ctx context.Context, out io.Writer, f *e2eFlags) error {
 		StartedAt: time.Now().UTC(),
 		PoCName:   p.Metadata.Name,
 	}
+	// Host probes don't need cluster — capture before phases run.
+	if !f.dryRun {
+		env := collectHostInfo(ctx)
+		report.Environment = &env
+	}
 	state := loadE2EState(repo)
 	if f.noResume {
 		state = e2eState{Phases: map[string]e2ePhaseState{}}
@@ -276,6 +281,23 @@ func runE2E(ctx context.Context, out io.Writer, f *e2eFlags) error {
 	for _, ph := range report.Phases {
 		if ph.Status == "failed" {
 			deployFailed++
+		}
+	}
+
+	// Cluster-side environment probes — k8s server version, kind
+	// cluster name, etc. — only meaningful once deploy-cne has put
+	// an apiserver behind the kubeconfig. Skip if any deploy phase
+	// failed; the kubeconfig might be missing or stale.
+	if !f.dryRun && deployFailed == 0 && report.Environment != nil {
+		if kubeconfig, err := requireKubeconfig(repo, ""); err == nil {
+			r := &deploy.Runner{
+				KubeconfigPath: kubeconfig,
+				HelmHome:       filepath.Join(repo, "artifacts", "helm-home"),
+				Out:            io.Discard,
+			}
+			collectClusterInfo(ctx, func(args ...string) (string, error) {
+				return r.KubectlCapture(ctx, args...)
+			}, report.Environment)
 		}
 	}
 
@@ -457,11 +479,12 @@ func runOnePhase(ctx context.Context, binary string, args []string, logPath stri
 }
 
 type runReport struct {
-	PoCName    string                     `json:"poc_name"`
-	StartedAt  time.Time                  `json:"started_at"`
-	FinishedAt time.Time                  `json:"finished_at"`
-	Phases     []phaseReport              `json:"phases"`
-	Scenarios  []scenarios.SummaryEntry   `json:"scenarios,omitempty"`
+	PoCName     string                   `json:"poc_name"`
+	StartedAt   time.Time                `json:"started_at"`
+	FinishedAt  time.Time                `json:"finished_at"`
+	Environment *EnvInfo                 `json:"environment,omitempty"`
+	Phases      []phaseReport            `json:"phases"`
+	Scenarios   []scenarios.SummaryEntry `json:"scenarios,omitempty"`
 }
 
 type phaseReport struct {
@@ -535,6 +558,11 @@ func renderRunMarkdown(r runReport) string {
 		}
 	}
 	fmt.Fprintf(&b, "**Result:** %d ok, %d failed, %d skipped\n\n", ok, failed, skipped)
+
+	if r.Environment != nil {
+		b.WriteString(renderEnvironment(r.Environment))
+	}
+
 	b.WriteString("## Deploy phases\n\n")
 	b.WriteString("| # | Phase | Status | Duration | Log |\n")
 	b.WriteString("|---|---|---|---|---|\n")
