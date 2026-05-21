@@ -4,15 +4,21 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/mwiget/kindbnkctl/internal/version"
 )
+
+// jsonUnmarshalImpl is split out so jsonUnmarshal can stub in tests
+// without import cycles. No behavior change.
+var jsonUnmarshalImpl = json.Unmarshal
 
 // EnvInfo captures the host + cluster environment a report was
 // produced against. Every field is best-effort: a missing probe
@@ -41,6 +47,37 @@ type EnvInfo struct {
 	// Cluster-side (collected after deploy succeeds — empty otherwise).
 	K8sServerVersion string `json:"k8s_server_version,omitempty"`
 	KindClusterName  string `json:"kind_cluster_name,omitempty"`
+
+	// Topology — populated alongside K8sServerVersion.
+	Nodes        []NodeInfo `json:"nodes,omitempty"`
+	PodNamespace []NSCount  `json:"pod_namespaces,omitempty"`
+	KeyPods      []PodInfo  `json:"key_pods,omitempty"`
+}
+
+// NodeInfo is one row in the cluster-topology table.
+type NodeInfo struct {
+	Name       string `json:"name"`
+	Role       string `json:"role"`              // "control-plane" | "worker"
+	Ready      string `json:"ready"`             // "True" | "False" | "Unknown"
+	K8sVersion string `json:"k8s_version"`       // kubelet version reported
+	OSImage    string `json:"os_image,omitempty"`
+	Runtime    string `json:"container_runtime,omitempty"`
+	Pods       int    `json:"pods,omitempty"`
+}
+
+// NSCount is one row in the namespace pod-count table.
+type NSCount struct {
+	Namespace string `json:"namespace"`
+	Count     int    `json:"count"`
+}
+
+// PodInfo is one row in the key-F5-pods table.
+type PodInfo struct {
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	Node      string `json:"node,omitempty"`
+	Ready     string `json:"ready"`  // "6/6"
+	Status    string `json:"status"` // "Running"
 }
 
 // collectHostInfo populates the host-side fields. Best-effort: a
@@ -118,6 +155,169 @@ func collectClusterInfo(ctx context.Context, kubectl func(args ...string) (strin
 			e.KindClusterName = v
 		}
 	}
+
+	// Nodes + topology.
+	if data, err := kubectl("get", "nodes", "-o", "json"); err == nil {
+		if nodes := parseNodes(data); len(nodes) > 0 {
+			e.Nodes = nodes
+		}
+	}
+	// All pods, used both for per-namespace counts AND key-pods lookup.
+	if data, err := kubectl("get", "pods", "-A", "-o", "json"); err == nil {
+		ns, key, byNode := parsePods(data)
+		e.PodNamespace = ns
+		e.KeyPods = key
+		// Backfill pod counts onto nodes.
+		for i := range e.Nodes {
+			e.Nodes[i].Pods = byNode[e.Nodes[i].Name]
+		}
+	}
+}
+
+// parseNodes pulls node summary rows from `kubectl get nodes -o json`.
+// Returns rows sorted by role then name (control-plane first).
+func parseNodes(data string) []NodeInfo {
+	type nodeList struct {
+		Items []struct {
+			Metadata struct {
+				Name   string            `json:"name"`
+				Labels map[string]string `json:"labels"`
+			} `json:"metadata"`
+			Status struct {
+				NodeInfo struct {
+					KubeletVersion          string `json:"kubeletVersion"`
+					OSImage                 string `json:"osImage"`
+					ContainerRuntimeVersion string `json:"containerRuntimeVersion"`
+				} `json:"nodeInfo"`
+				Conditions []struct {
+					Type   string `json:"type"`
+					Status string `json:"status"`
+				} `json:"conditions"`
+			} `json:"status"`
+		} `json:"items"`
+	}
+	var nl nodeList
+	if err := jsonUnmarshal(data, &nl); err != nil {
+		return nil
+	}
+	out := make([]NodeInfo, 0, len(nl.Items))
+	for _, it := range nl.Items {
+		role := "worker"
+		if _, ok := it.Metadata.Labels["node-role.kubernetes.io/control-plane"]; ok {
+			role = "control-plane"
+		}
+		ready := "Unknown"
+		for _, c := range it.Status.Conditions {
+			if c.Type == "Ready" {
+				ready = c.Status
+			}
+		}
+		out = append(out, NodeInfo{
+			Name:       it.Metadata.Name,
+			Role:       role,
+			Ready:      ready,
+			K8sVersion: it.Status.NodeInfo.KubeletVersion,
+			OSImage:    it.Status.NodeInfo.OSImage,
+			Runtime:    it.Status.NodeInfo.ContainerRuntimeVersion,
+		})
+	}
+	// control-plane first, then alphabetical within role.
+	sortNodes(out)
+	return out
+}
+
+// parsePods walks `kubectl get pods -A -o json` and produces:
+//   - per-namespace pod counts (alpha-sorted)
+//   - the F5 control-plane key pods (TMM, FLO, CNE controller, AFM, CWC, …)
+//   - a name→count map keyed by spec.nodeName (used to backfill Node rows)
+//
+// Pods in *-system / scenario namespaces are still counted toward
+// totals but not surfaced individually; key-pod selection is
+// deliberately narrow to keep the table short.
+func parsePods(data string) (ns []NSCount, keyPods []PodInfo, byNode map[string]int) {
+	type podList struct {
+		Items []struct {
+			Metadata struct {
+				Namespace string            `json:"namespace"`
+				Name      string            `json:"name"`
+				Labels    map[string]string `json:"labels"`
+			} `json:"metadata"`
+			Spec struct {
+				NodeName string `json:"nodeName"`
+			} `json:"spec"`
+			Status struct {
+				Phase             string `json:"phase"`
+				ContainerStatuses []struct {
+					Ready bool `json:"ready"`
+				} `json:"containerStatuses"`
+			} `json:"status"`
+		} `json:"items"`
+	}
+	var pl podList
+	if err := jsonUnmarshal(data, &pl); err != nil {
+		return nil, nil, nil
+	}
+	nsCount := map[string]int{}
+	byNode = map[string]int{}
+	for _, it := range pl.Items {
+		nsCount[it.Metadata.Namespace]++
+		if it.Spec.NodeName != "" {
+			byNode[it.Spec.NodeName]++
+		}
+		if isKeyF5Pod(it.Metadata.Namespace, it.Metadata.Name, it.Metadata.Labels) {
+			ready := readyRatio(it.Status.ContainerStatuses)
+			keyPods = append(keyPods, PodInfo{
+				Namespace: it.Metadata.Namespace,
+				Name:      it.Metadata.Name,
+				Node:      it.Spec.NodeName,
+				Ready:     ready,
+				Status:    it.Status.Phase,
+			})
+		}
+	}
+	for k, v := range nsCount {
+		ns = append(ns, NSCount{Namespace: k, Count: v})
+	}
+	sortNSCount(ns)
+	sortKeyPods(keyPods)
+	return ns, keyPods, byNode
+}
+
+// isKeyF5Pod selects pods worth surfacing in the report's
+// "Key F5 pods" table. The heuristic is conservative: F5
+// namespaces or pod names starting with f5- (excluding leases
+// and one-shot installer jobs).
+func isKeyF5Pod(ns, name string, _ map[string]string) bool {
+	if strings.HasPrefix(ns, "f5-") || ns == "default" {
+		if strings.HasPrefix(name, "f5-") {
+			// f5-flo and f5-* control-plane Deployments, but skip
+			// one-shot installer Jobs whose pod name pattern is
+			// "f5-flo-bnk-install-XXXX" with random suffix.
+			if strings.Contains(name, "install-") {
+				return false
+			}
+			return true
+		}
+	}
+	return false
+}
+
+func readyRatio(cs []struct {
+	Ready bool `json:"ready"`
+}) string {
+	ready := 0
+	for _, c := range cs {
+		if c.Ready {
+			ready++
+		}
+	}
+	return fmt.Sprintf("%d/%d", ready, len(cs))
+}
+
+// jsonUnmarshal is a tiny shim so test-doubles can stub if needed
+// later; today it just delegates to the std library.
+func jsonUnmarshal(data string, v interface{}) error {
+	return jsonUnmarshalImpl([]byte(data), v)
 }
 
 func readKernel() string {
@@ -216,6 +416,41 @@ func formatMemMiB(kb int64) string {
 	return fmt.Sprintf("%d MiB (%.2f GiB)", mib, gib)
 }
 
+func sortNodes(n []NodeInfo) {
+	sort.SliceStable(n, func(i, j int) bool {
+		ri, rj := nodeRoleRank(n[i].Role), nodeRoleRank(n[j].Role)
+		if ri != rj {
+			return ri < rj
+		}
+		return n[i].Name < n[j].Name
+	})
+}
+
+func nodeRoleRank(role string) int {
+	if role == "control-plane" {
+		return 0
+	}
+	return 1
+}
+
+func sortNSCount(n []NSCount) {
+	sort.Slice(n, func(i, j int) bool {
+		if n[i].Count != n[j].Count {
+			return n[i].Count > n[j].Count
+		}
+		return n[i].Namespace < n[j].Namespace
+	})
+}
+
+func sortKeyPods(p []PodInfo) {
+	sort.Slice(p, func(i, j int) bool {
+		if p[i].Namespace != p[j].Namespace {
+			return p[i].Namespace < p[j].Namespace
+		}
+		return p[i].Name < p[j].Name
+	})
+}
+
 // renderEnvironment produces the "## Environment" markdown section
 // for inclusion in a run report. Empty fields render as "—" so the
 // reader can tell at a glance which probes didn't run (e.g. cluster
@@ -263,5 +498,37 @@ func renderEnvironment(e *EnvInfo) string {
 		fmt.Fprintf(&b, "| Memory | %s |\n", m)
 	}
 	b.WriteString("\n")
+
+	if len(e.Nodes) > 0 {
+		b.WriteString("### Cluster nodes\n\n")
+		b.WriteString("| Node | Role | Ready | Kubelet | Runtime | Pods |\n")
+		b.WriteString("|---|---|---|---|---|---:|\n")
+		for _, n := range e.Nodes {
+			fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %s | %d |\n",
+				n.Name, n.Role, n.Ready,
+				dash(n.K8sVersion), dash(n.Runtime), n.Pods)
+		}
+		b.WriteString("\n")
+	}
+
+	if len(e.KeyPods) > 0 {
+		b.WriteString("### F5 control-plane pods\n\n")
+		b.WriteString("| Namespace | Pod | Node | Ready | Status |\n")
+		b.WriteString("|---|---|---|---|---|\n")
+		for _, p := range e.KeyPods {
+			fmt.Fprintf(&b, "| %s | `%s` | %s | %s | %s |\n",
+				p.Namespace, p.Name, dash(p.Node), p.Ready, p.Status)
+		}
+		b.WriteString("\n")
+	}
+
+	if len(e.PodNamespace) > 0 {
+		b.WriteString("### Pods by namespace\n\n")
+		b.WriteString("| Namespace | Pods |\n|---|---:|\n")
+		for _, n := range e.PodNamespace {
+			fmt.Fprintf(&b, "| %s | %d |\n", n.Namespace, n.Count)
+		}
+		b.WriteString("\n")
+	}
 	return b.String()
 }

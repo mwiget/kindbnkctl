@@ -128,6 +128,167 @@ func TestFormatMemMiB(t *testing.T) {
 	}
 }
 
+const sampleNodesJSON = `{
+  "items": [
+    {
+      "metadata": {
+        "name": "smoke-worker",
+        "labels": {}
+      },
+      "status": {
+        "nodeInfo": {
+          "kubeletVersion": "v1.30.8",
+          "osImage": "Debian GNU/Linux 12 (bookworm)",
+          "containerRuntimeVersion": "containerd://1.7.18"
+        },
+        "conditions": [
+          {"type": "Ready", "status": "True"}
+        ]
+      }
+    },
+    {
+      "metadata": {
+        "name": "smoke-control-plane",
+        "labels": {"node-role.kubernetes.io/control-plane": ""}
+      },
+      "status": {
+        "nodeInfo": {
+          "kubeletVersion": "v1.30.8",
+          "osImage": "Debian GNU/Linux 12 (bookworm)",
+          "containerRuntimeVersion": "containerd://1.7.18"
+        },
+        "conditions": [
+          {"type": "Ready", "status": "True"}
+        ]
+      }
+    }
+  ]
+}`
+
+func TestParseNodes_OrdersControlPlaneFirst(t *testing.T) {
+	n := parseNodes(sampleNodesJSON)
+	if len(n) != 2 {
+		t.Fatalf("got %d nodes, want 2", len(n))
+	}
+	if n[0].Name != "smoke-control-plane" {
+		t.Errorf("first node should be control-plane, got %q", n[0].Name)
+	}
+	if n[0].Role != "control-plane" {
+		t.Errorf("role mismatch: %q", n[0].Role)
+	}
+	if n[1].Role != "worker" {
+		t.Errorf("second node should be worker, got %q", n[1].Role)
+	}
+	if n[0].Ready != "True" || n[0].K8sVersion != "v1.30.8" {
+		t.Errorf("unexpected node status: %+v", n[0])
+	}
+}
+
+const samplePodsJSON = `{
+  "items": [
+    {
+      "metadata": {"namespace": "default", "name": "f5-tmm-abc"},
+      "spec": {"nodeName": "smoke-worker"},
+      "status": {"phase": "Running", "containerStatuses": [
+        {"ready": true},{"ready": true},{"ready": true},
+        {"ready": true},{"ready": true},{"ready": true}
+      ]}
+    },
+    {
+      "metadata": {"namespace": "default", "name": "f5-cne-controller-xyz"},
+      "spec": {"nodeName": "smoke-worker"},
+      "status": {"phase": "Running", "containerStatuses": [
+        {"ready": true},{"ready": true},{"ready": true},{"ready": true}
+      ]}
+    },
+    {
+      "metadata": {"namespace": "default", "name": "f5-flo-bnk-install-12345"},
+      "spec": {"nodeName": "smoke-worker"},
+      "status": {"phase": "Succeeded", "containerStatuses": [{"ready": false}]}
+    },
+    {
+      "metadata": {"namespace": "kube-system", "name": "kube-proxy-1"},
+      "spec": {"nodeName": "smoke-worker"},
+      "status": {"phase": "Running", "containerStatuses": [{"ready": true}]}
+    },
+    {
+      "metadata": {"namespace": "kube-system", "name": "kube-proxy-2"},
+      "spec": {"nodeName": "smoke-control-plane"},
+      "status": {"phase": "Running", "containerStatuses": [{"ready": true}]}
+    }
+  ]
+}`
+
+func TestParsePods_KeyPodsExcludeInstallerAndNonF5(t *testing.T) {
+	ns, key, byNode := parsePods(samplePodsJSON)
+	// 4 worker pods + 1 control-plane pod
+	if byNode["smoke-worker"] != 4 || byNode["smoke-control-plane"] != 1 {
+		t.Errorf("byNode wrong: %+v", byNode)
+	}
+	// Two key pods: f5-tmm + f5-cne-controller. NOT the installer Job
+	// (name contains "install-") and NOT kube-proxy.
+	if len(key) != 2 {
+		t.Fatalf("got %d key pods, want 2 (%+v)", len(key), key)
+	}
+	names := map[string]bool{}
+	for _, p := range key {
+		names[p.Name] = true
+	}
+	if !names["f5-tmm-abc"] || !names["f5-cne-controller-xyz"] {
+		t.Errorf("key pod set wrong: %+v", names)
+	}
+	// Namespace counts sorted by count desc.
+	if ns[0].Count < ns[1].Count {
+		t.Errorf("ns count not sorted desc: %+v", ns)
+	}
+	// Readiness format check.
+	var tmm PodInfo
+	for _, p := range key {
+		if p.Name == "f5-tmm-abc" {
+			tmm = p
+		}
+	}
+	if tmm.Ready != "6/6" {
+		t.Errorf("TMM ready %q, want 6/6", tmm.Ready)
+	}
+}
+
+func TestRenderEnvironment_WithTopology(t *testing.T) {
+	e := &EnvInfo{
+		OS: "linux", Arch: "amd64", CPUCores: 8,
+		KindBNKCtlVersion: "dev", BNKVersion: "2.3.0",
+		CNEManifestVersion: "2.3.0-3.2598.3-0.0.170",
+		Nodes: []NodeInfo{
+			{Name: "smoke-control-plane", Role: "control-plane", Ready: "True",
+				K8sVersion: "v1.30.8", Runtime: "containerd://1.7.18", Pods: 7},
+			{Name: "smoke-worker", Role: "worker", Ready: "True",
+				K8sVersion: "v1.30.8", Runtime: "containerd://1.7.18", Pods: 28},
+		},
+		KeyPods: []PodInfo{
+			{Namespace: "default", Name: "f5-tmm-abc", Node: "smoke-worker", Ready: "6/6", Status: "Running"},
+		},
+		PodNamespace: []NSCount{
+			{Namespace: "default", Count: 12},
+			{Namespace: "kube-system", Count: 14},
+		},
+	}
+	md := renderEnvironment(e)
+	for _, want := range []string{
+		"### Cluster nodes",
+		"### F5 control-plane pods",
+		"### Pods by namespace",
+		"smoke-control-plane",
+		"smoke-worker",
+		"control-plane",
+		"6/6",
+		"Running",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("renderEnvironment missing %q in:\n%s", want, md)
+		}
+	}
+}
+
 func TestSafeSlug(t *testing.T) {
 	cases := map[string]string{
 		"":               "poc",
