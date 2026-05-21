@@ -242,7 +242,7 @@ func runDeployFLO(ctx context.Context, out io.Writer, f *deployFLOFlags) error {
 	if _, err := readJWT(jwtPath); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "      type=%s  jku=%s  sub=%s\n", info.Type, info.JKU, info.Sub)
+	fmt.Fprintf(out, "      type=%s  jku=%s  sub=%s\n", info.Type, info.JKU, redactJWTSub(info.Sub))
 
 	// 3. bnk-ca cert-issuer chain.
 	fmt.Fprintln(out, "[3/6] Applying bnk-ca cert-issuer chain ...")
@@ -264,7 +264,7 @@ func runDeployFLO(ctx context.Context, out io.Writer, f *deployFLOFlags) error {
 		return err
 	}
 	rendered := filepath.Join(repo, "artifacts", "flo-values-rendered.yaml")
-	if err := os.WriteFile(rendered, []byte(values), 0o644); err != nil {
+	if err := os.WriteFile(rendered, []byte(values), 0o600); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "      rendered → %s\n", rendered)
@@ -364,7 +364,7 @@ func runDeployCNE(ctx context.Context, out io.Writer, f *deployCNEFlags) error {
 		return err
 	}
 	rendered := filepath.Join(repo, "artifacts", "cne-instance-rendered.yaml")
-	if err := os.WriteFile(rendered, []byte(cne), 0o644); err != nil {
+	if err := os.WriteFile(rendered, []byte(cne), 0o600); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "      rendered → %s\n", rendered)
@@ -482,6 +482,29 @@ spec:
 }
 
 // applyLicenseWithQuotaRetry retries `kubectl apply` while the
+// redactJWTSub trims a JWT subject claim down to "<type-prefix>-<4 chars>…"
+// for diagnostic display. The full sub is a subscription/account
+// identifier we don't want echoed verbatim into per-phase deploy logs
+// that operators routinely paste into tickets / slack / GitHub. The
+// prefix-plus-4 form keeps enough fingerprint to differentiate which
+// JWT is loaded without leaking the full ID.
+//
+// "TST-EE4C16F4-7B16-463E-B050-0026A6E837E4" → "TST-EE4C…"
+// "prod-account-12345"                       → "prod-acco…"
+// ""                                         → ""
+func redactJWTSub(s string) string {
+	if s == "" {
+		return ""
+	}
+	if i := strings.Index(s, "-"); i > 0 && len(s) > i+5 {
+		return s[:i+5] + "…"
+	}
+	if len(s) > 4 {
+		return s[:4] + "…"
+	}
+	return s
+}
+
 // f5-single-license-quota's status.used is still unpopulated (CWC
 // creates the quota at the same time it reconciles License, and the
 // quota controller takes a moment to populate it). Bounded retry:

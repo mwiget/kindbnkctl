@@ -30,10 +30,14 @@ package bgppeer
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
+	"net/http"
 	"os/exec"
 	"strings"
 	"text/template"
@@ -48,9 +52,18 @@ var manifestFS embed.FS
 const (
 	scnName  = "bgp-peer-frr"
 	scnTitle = "Dynamic routing with BGP (how-to #3) — FRR peer over Multus NAD"
-	// Multus thick-plugin upstream manifest. Pinned. Pulled at scenario
-	// apply time if the kube-multus DaemonSet isn't already running.
-	multusManifestURL = "https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/v4.1.4/deployments/multus-daemonset-thick.yml"
+	// Multus thick-plugin upstream manifest. Pinned + SHA-256 verified —
+	// we apply this DaemonSet to every kind node, so a tampered manifest
+	// would land cluster-wide CNI plumbing. The SHA was computed at the
+	// time this version was pinned; update both lines together when
+	// bumping multus.
+	multusManifestURL  = "https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/v4.1.4/deployments/multus-daemonset-thick.yml"
+	multusManifestSHA  = "33fef64fbb67ef5d68183bad5b2aec4163dad0ebb0b63abe25343155d0d8b4be"
+	// containernetworking/plugins release tarball. We extract just the
+	// `bridge` binary onto every kind node — that runs as root inside
+	// the node container, so SHA verification is load-bearing.
+	cniPluginsURL = "https://github.com/containernetworking/plugins/releases/download/v1.5.1/cni-plugins-linux-amd64-v1.5.1.tgz"
+	cniPluginsSHA = "77baa2f669980a82255ffa2f2717de823992480271ee778aa51a9c60ae89ff9b"
 )
 
 func init() { scenarios.Register(&scenario{}) }
@@ -591,6 +604,37 @@ func podBnkBgpIP(ctx *scenarios.Context, namespace, podName string) (string, err
 // is only needed when a scenario uses a bridge-CNI-backed NAD,
 // which is the bgp-peer-frr scenario's choice. Other deployments
 // of kindbnkctl that never run BGP scenarios don't need it.
+// downloadAndVerify fetches url over HTTPS, asserts that the body's
+// SHA-256 matches wantHex, and returns the body bytes. Used for the
+// pinned multus manifest (and any future privileged-payload download
+// path). Returns a wrapped error if the SHA mismatches so the caller
+// can surface the operator-actionable "tampered upstream?" cue.
+func downloadAndVerify(ctx context.Context, url, wantHex string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return nil, fmt.Errorf("GET %s: HTTP %d", url, resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(body)
+	gotHex := hex.EncodeToString(sum[:])
+	if gotHex != wantHex {
+		return nil, fmt.Errorf("integrity check failed for %s: got sha256=%s want %s — refusing to apply (upstream tampered or version pin needs an update)",
+			url, gotHex, wantHex)
+	}
+	return body, nil
+}
+
 func ensureBridgeCNI(ctx *scenarios.Context) error {
 	r := ctx.Runner
 	out, _ := r.KubectlCapture(ctx.Ctx, "get", "nodes",
@@ -599,14 +643,17 @@ func ensureBridgeCNI(ctx *scenarios.Context) error {
 	if len(nodes) == 0 {
 		return fmt.Errorf("no kind nodes found")
 	}
-	const url = "https://github.com/containernetworking/plugins/releases/download/v1.5.1/cni-plugins-linux-amd64-v1.5.1.tgz"
 	// Single-line POSIX sh script: short-circuit if the bridge
 	// binary is already present, otherwise download the plugins
-	// tarball, extract bridge, install it, clean up.
+	// tarball, verify its SHA-256, extract bridge, install it,
+	// clean up. SHA verification is load-bearing: this binary
+	// runs as root inside the kind node container, so a tampered
+	// download would land arbitrary root code on every node.
 	script := `set -e; ` +
 		`if [ -x /opt/cni/bin/bridge ]; then echo present; exit 0; fi; ` +
 		`cd /tmp; ` +
-		`curl -fsSL -o plugins.tgz ` + url + `; ` +
+		`curl -fsSL -o plugins.tgz ` + cniPluginsURL + `; ` +
+		`echo '` + cniPluginsSHA + `  plugins.tgz' | sha256sum -c -; ` +
 		`tar xzf plugins.tgz ./bridge; ` +
 		`install -m 0755 bridge /opt/cni/bin/bridge; ` +
 		`rm -f plugins.tgz bridge; ` +
@@ -655,7 +702,11 @@ func ensureMultus(ctx *scenarios.Context) error {
 		fmt.Fprintln(ctx.Out, "      | Multus already installed — skipping install")
 	} else {
 		fmt.Fprintln(ctx.Out, "      | installing Multus thick plugin ...")
-		if err := r.Kubectl(ctx.Ctx, "apply", "-f", multusManifestURL); err != nil {
+		body, err := downloadAndVerify(ctx.Ctx, multusManifestURL, multusManifestSHA)
+		if err != nil {
+			return fmt.Errorf("multus manifest: %w", err)
+		}
+		if err := r.Apply(ctx.Ctx, string(body)); err != nil {
 			return err
 		}
 	}
