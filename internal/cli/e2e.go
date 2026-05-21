@@ -14,7 +14,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/mwiget/kindbnkctl/internal/deploy"
 	"github.com/mwiget/kindbnkctl/internal/poc"
+	"github.com/mwiget/kindbnkctl/internal/scenarios"
 	"github.com/mwiget/kindbnkctl/internal/version"
 )
 
@@ -47,6 +49,7 @@ type e2eFlags struct {
 	continueOnFailure bool
 	noResume          bool
 	confirmCluster    string
+	withScenarios     bool
 }
 
 func newE2ECmd() *cobra.Command {
@@ -74,7 +77,13 @@ Invocation:
   kindbnkctl e2e --yolo                Actually run (resume-safe via
                                         artifacts/e2e-state.json).
   kindbnkctl e2e --yolo --no-resume    Re-run every phase from scratch.
-  kindbnkctl e2e --yolo --phase A,B,C  Only the listed phases.`,
+  kindbnkctl e2e --yolo --phase A,B,C  Only the listed phases.
+  kindbnkctl e2e --yolo --with-scenarios
+                                       After deploy succeeds, run every
+                                        green scenario and roll the results
+                                        into the same run.{json,md} so one
+                                        report covers cluster bring-up
+                                        + every how-to.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runE2E(cmd.Context(), cmd.OutOrStdout(), f)
 		},
@@ -87,6 +96,7 @@ Invocation:
 	cmd.Flags().BoolVar(&f.continueOnFailure, "continue-on-failure", false, "Keep running after a phase fails")
 	cmd.Flags().BoolVar(&f.noResume, "no-resume", false, "Ignore artifacts/e2e-state.json")
 	cmd.Flags().StringVar(&f.confirmCluster, "confirm-cluster", "", "Required typo-guard; must equal poc.yaml.metadata.name. Also used for --confirm-deploy")
+	cmd.Flags().BoolVar(&f.withScenarios, "with-scenarios", false, "After deploy succeeds, run every green scenario (topo-sorted) and include results in the same run.{json,md}")
 	return cmd
 }
 
@@ -260,6 +270,23 @@ func runE2E(ctx context.Context, out io.Writer, f *e2eFlags) error {
 		}
 	}
 
+	// Count deploy failures BEFORE the optional scenarios pass so we
+	// don't bother running scenarios against a half-deployed cluster.
+	deployFailed := 0
+	for _, ph := range report.Phases {
+		if ph.Status == "failed" {
+			deployFailed++
+		}
+	}
+
+	if f.withScenarios && !f.dryRun && deployFailed == 0 {
+		if err := runScenariosForE2E(ctx, out, repo, reportDir, &report); err != nil {
+			fmt.Fprintf(out, "WARN: scenario phase: %v\n", err)
+		}
+	} else if f.withScenarios && deployFailed > 0 {
+		fmt.Fprintln(out, "(skipping --with-scenarios because deploy failed)")
+	}
+
 	report.FinishedAt = time.Now().UTC()
 	if f.dryRun {
 		return nil
@@ -267,16 +294,81 @@ func runE2E(ctx context.Context, out io.Writer, f *e2eFlags) error {
 	if err := writeRunReports(reportDir, report); err != nil {
 		fmt.Fprintf(out, "WARN: write reports: %v\n", err)
 	}
-	failed := 0
-	for _, ph := range report.Phases {
-		if ph.Status == "failed" {
-			failed++
+	scenarioFailed := 0
+	for _, s := range report.Scenarios {
+		if s.Status == "failed" {
+			scenarioFailed++
 		}
 	}
-	if failed > 0 {
-		return fmt.Errorf("e2e: %d phase(s) failed — see %s", failed, reportDir)
+	if deployFailed > 0 {
+		return fmt.Errorf("e2e: %d phase(s) failed — see %s", deployFailed, reportDir)
+	}
+	if scenarioFailed > 0 {
+		return fmt.Errorf("e2e: %d scenario(s) failed — see %s", scenarioFailed, reportDir)
 	}
 	fmt.Fprintf(out, "DONE. Report at %s\n", reportDir)
+	return nil
+}
+
+// runScenariosForE2E runs every green scenario in topo-sorted order
+// against the freshly-deployed cluster and appends one SummaryEntry
+// per scenario to report.Scenarios. Per-scenario JSON files land in
+// the same reports/<stamp>/scenarios/ dir as the e2e run.{json,md}
+// (driven by sctx.ReportStamp).
+func runScenariosForE2E(ctx context.Context, out io.Writer, repo, reportDir string, report *runReport) error {
+	p, err := poc.Load(repo)
+	if err != nil {
+		return fmt.Errorf("reload PoC: %w", err)
+	}
+	kubeconfig, err := requireKubeconfig(repo, "deploy did not produce a kubeconfig")
+	if err != nil {
+		return err
+	}
+
+	// The reports dir name is the timestamp portion of reportDir.
+	// We pass that through so per-scenario JSONs share the e2e tree.
+	stamp := filepath.Base(strings.TrimRight(filepath.Clean(reportDir), "/"))
+
+	sctx := &scenarios.Context{
+		Ctx:    ctx,
+		PoC:    p,
+		PoCDir: repo,
+		Runner: &deploy.Runner{
+			KubeconfigPath: kubeconfig,
+			HelmHome:       filepath.Join(repo, "artifacts", "helm-home"),
+			Out:            prefixWriter{w: out, prefix: "      | "},
+		},
+		Out:         out,
+		ReportStamp: stamp,
+	}
+
+	// Same green-only + topo-sort policy as `scenario run --all`.
+	var greens []scenarios.Scenario
+	for _, s := range scenarios.All() {
+		if s.Rating() == scenarios.Green {
+			greens = append(greens, s)
+		}
+	}
+	if len(greens) == 0 {
+		fmt.Fprintln(out, "no green-rated scenarios registered")
+		return nil
+	}
+	ordered, err := topoSortByDeps(greens)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(out, "\n--with-scenarios: running %d green scenario(s) ...\n\n", len(ordered))
+	for _, s := range ordered {
+		r := scenarios.Run(sctx, s)
+		report.Scenarios = append(report.Scenarios, scenarios.SummaryEntry{
+			Name:    s.Name(),
+			Rating:  string(s.Rating()),
+			Status:  r.Status,
+			Summary: r.Summary,
+		})
+		fmt.Fprintln(out)
+	}
 	return nil
 }
 
@@ -360,10 +452,11 @@ func runOnePhase(ctx context.Context, binary string, args []string, logPath stri
 }
 
 type runReport struct {
-	PoCName    string        `json:"poc_name"`
-	StartedAt  time.Time     `json:"started_at"`
-	FinishedAt time.Time     `json:"finished_at"`
-	Phases     []phaseReport `json:"phases"`
+	PoCName    string                     `json:"poc_name"`
+	StartedAt  time.Time                  `json:"started_at"`
+	FinishedAt time.Time                  `json:"finished_at"`
+	Phases     []phaseReport              `json:"phases"`
+	Scenarios  []scenarios.SummaryEntry   `json:"scenarios,omitempty"`
 }
 
 type phaseReport struct {
@@ -406,6 +499,7 @@ func renderRunMarkdown(r runReport) string {
 		}
 	}
 	fmt.Fprintf(&b, "**Result:** %d ok, %d failed, %d skipped\n\n", ok, failed, skipped)
+	b.WriteString("## Deploy phases\n\n")
 	b.WriteString("| # | Phase | Status | Duration | Log |\n")
 	b.WriteString("|---|---|---|---|---|\n")
 	for _, ph := range r.Phases {
@@ -420,5 +514,31 @@ func renderRunMarkdown(r runReport) string {
 		fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |\n",
 			ph.Index, ph.Phase, ph.Status, dur, lg)
 	}
+
+	if len(r.Scenarios) > 0 {
+		sOK, sFailed, sSkipped := 0, 0, 0
+		for _, s := range r.Scenarios {
+			switch s.Status {
+			case "ok":
+				sOK++
+			case "failed":
+				sFailed++
+			case "skipped":
+				sSkipped++
+			}
+		}
+		fmt.Fprintf(&b, "\n## Scenarios\n\n%d ok, %d failed, %d skipped\n\n",
+			sOK, sFailed, sSkipped)
+		b.WriteString("| Scenario | Rating | Status | Summary |\n")
+		b.WriteString("|---|---|---|---|\n")
+		for _, s := range r.Scenarios {
+			fmt.Fprintf(&b, "| [`%s`](scenarios/%s.json) | %s | %s | %s |\n",
+				s.Name, s.Name, s.Rating, s.Status, mdEscapeBar(s.Summary))
+		}
+	}
 	return b.String()
+}
+
+func mdEscapeBar(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, "|", `\|`), "\n", " ")
 }
