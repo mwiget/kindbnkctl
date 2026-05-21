@@ -22,7 +22,7 @@
     {
       "description": "k8s.f5.com/ai semantic-cache annotation present on Gateway",
       "ok": true,
-      "got": "semantic_cache=enabled, semantic_cache_ip_port=10.96.243.125:5050, semantic_cache_recv_timeout=1000"
+      "got": "semantic_cache=enabled, semantic_cache_ip_port=10.96.182.100:5050, semantic_cache_recv_timeout=1000"
     },
     {
       "description": "k8s.f5.com/sse-enabled annotation present on HTTPRoute",
@@ -42,11 +42,11 @@
     {
       "description": "TMM semantic-cache iRule fired (CLIENT_ACCEPTED + HTTP_REQUEST events)",
       "ok": true,
-      "got": "\u003c134\u003eMay 21 11:21:01 f5-tmm-645cffc79f-2zg26 tmm[55]: Rule scn-semcache-gateway-scn-semcache-semantic-cache \u003cHTTP_REQUEST\u003e: SEMANTIC_CACHE_IRULE: HTTP_REQUEST triggered /v1/chat/completions client=192.168.99.20 method=POST | \u003c134\u003eMay 21 11:21:02 f5-t…"
+      "got": "\u003c134\u003eMay 21 14:22:57 f5-tmm-6858c8bfbf-jtcvm tmm[55]: Rule scn-semcache-gateway-scn-semcache-semantic-cache \u003cHTTP_REQUEST\u003e: SEMANTIC_CACHE_IRULE: HTTP_REQUEST triggered /v1/chat/completions client=192.168.99.20 method=POST | \u003c134\u003eMay 21 14:22:57 f5-t…"
     }
   ],
   "manifest_path": "/tmp/kindbnkctl-smoke/artifacts/scenarios/ai-semantic-cache/01-namespace.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/ai-semantic-cache/02-bnkgateway.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/ai-semantic-cache/03-stubs.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/ai-semantic-cache/04-gateway.yaml.tmpl,/tmp/kindbnkctl-smoke/artifacts/scenarios/ai-semantic-cache/05-httproute.yaml",
   "scenario": "ai-semantic-cache",
-  "started_at": "2026-05-21T11:20:39.658246074Z",
-  "duration": "23s"
+  "started_at": "2026-05-21T14:22:35.031659393Z",
+  "duration": "22s"
 }

@@ -512,7 +512,7 @@ kind worker container's filesystem to confirm capture.
 
 A complete `e2e --with-scenarios` report from a clean cluster
 is checked in at
-[`examples/reports/run-smoke-2026-05-21T11-11-15Z.md`](examples/reports/run-smoke-2026-05-21T11-11-15Z.md)
+[`examples/reports/run-smoke-2026-05-21T14-13-14Z.md`](examples/reports/run-smoke-2026-05-21T14-13-14Z.md)
 so a reader can see the full report shape (versions, host
 resources, cluster topology, F5 control-plane pods, namespaced
 pod counts, every deploy phase, and every scenario row) without

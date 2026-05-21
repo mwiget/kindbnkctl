@@ -18,7 +18,7 @@ FAR:     /tmp/kindbnkctl-smoke/keys/f5-far-auth-key.tgz
 [5/5] Installing cert-manager ...
       | Release "cert-manager" does not exist. Installing it now.
       | NAME: cert-manager
-      | LAST DEPLOYED: Thu May 21 13:12:07 2026
+      | LAST DEPLOYED: Thu May 21 16:14:02 2026
       | NAMESPACE: cert-manager
       | STATUS: deployed
       | REVISION: 1

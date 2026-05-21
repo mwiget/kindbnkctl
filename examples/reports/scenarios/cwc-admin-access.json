@@ -9,7 +9,7 @@
     {
       "description": "Authenticated GET /status returns HTTP 200 with license JSON",
       "ok": true,
-      "got": "{\"Status\":{\"ClusterDetails\":{\"Name\":\"CNE Cluster\"},\"LicenseDetails\":{\"DigitalAssetID\":\"ce620371-6da0-4f6a-958d-98eaad0d1dc7\",\"EntitlementType\":\"paid\",\"LicenseExpiryDate\":\"2026-11-17T11:16:12Z\",\"LicenseExpiryInDays\":\"179\"},\"LicenseStatus\":{\"State\":\"Ve…"
+      "got": "{\"Status\":{\"ClusterDetails\":{\"Name\":\"CNE Cluster\"},\"LicenseDetails\":{\"DigitalAssetID\":\"4704a42e-d7dc-4c3e-9db4-1c6f3226a866\",\"EntitlementType\":\"paid\",\"LicenseExpiryDate\":\"2026-11-17T14:18:12Z\",\"LicenseExpiryInDays\":\"179\"},\"LicenseStatus\":{\"State\":\"Ve…"
     },
     {
       "description": "Unauthenticated GET /status is rejected (no token in header)",
@@ -24,6 +24,6 @@
   ],
   "manifest_path": "/tmp/kindbnkctl-smoke/artifacts/scenarios/cwc-admin-access/01-namespace.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/cwc-admin-access/02-probe.yaml",
   "scenario": "cwc-admin-access",
-  "started_at": "2026-05-21T11:24:26.676936464Z",
-  "duration": "10s"
+  "started_at": "2026-05-21T14:26:28.48559682Z",
+  "duration": "8s"
 }

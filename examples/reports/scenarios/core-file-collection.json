@@ -25,6 +25,6 @@
   ],
   "manifest_path": "/tmp/kindbnkctl-smoke/artifacts/scenarios/core-file-collection/01-cneinstance-patch.yaml",
   "scenario": "core-file-collection",
-  "started_at": "2026-05-21T11:21:25.526055312Z",
+  "started_at": "2026-05-21T14:23:27.418753692Z",
   "duration": "3m1s"
 }

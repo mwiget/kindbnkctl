@@ -33,6 +33,6 @@
   ],
   "manifest_path": "/tmp/kindbnkctl-smoke/artifacts/scenarios/http-routing-e2e/01-gatewayclass.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/http-routing-e2e/02-namespace.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/http-routing-e2e/03-bnkgateway.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/http-routing-e2e/04-backend.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/http-routing-e2e/05-gateway.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/http-routing-e2e/06-httproute.yaml",
   "scenario": "http-routing-e2e",
-  "started_at": "2026-05-21T11:25:25.840364857Z",
-  "duration": "21s"
+  "started_at": "2026-05-21T14:27:14.057692776Z",
+  "duration": "28s"
 }
