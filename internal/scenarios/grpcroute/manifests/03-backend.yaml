@@ -1,0 +1,49 @@
+# moul/grpcbin — small (~12MB) reference gRPC server with reflection
+# enabled. Listens on tcp/9000 (insecure gRPC) and tcp/9001 (TLS gRPC).
+# We use 9000 only here. Available services include grpcbin.GRPCBin
+# (Empty, Index, DummyUnary, ...) and the standard reflection API,
+# which lets grpcurl introspect without proto files.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grpcbin
+  namespace: scn-grpc
+  labels: {app: grpcbin}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: grpcbin}
+  template:
+    metadata:
+      labels: {app: grpcbin}
+    spec:
+      containers:
+      - name: grpcbin
+        image: moul/grpcbin:latest
+        ports:
+        - {name: grpc, containerPort: 9000}
+        readinessProbe:
+          tcpSocket: {port: 9000}
+          initialDelaySeconds: 1
+          periodSeconds: 2
+        resources:
+          requests: {cpu: 10m, memory: 16Mi}
+          limits:   {cpu: 200m, memory: 128Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grpcbin
+  namespace: scn-grpc
+spec:
+  selector: {app: grpcbin}
+  ports:
+  # appProtocol h2c tells the Gateway-API implementation that the
+  # backend speaks HTTP/2 cleartext, so TMM should forward as HTTP/2
+  # without trying h2c upgrade on the wire. Standard k8s hint for
+  # gRPC backends.
+  - name: grpc
+    port: 9000
+    targetPort: 9000
+    protocol: TCP
+    appProtocol: kubernetes.io/h2c

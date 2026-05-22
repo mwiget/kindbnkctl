@@ -24,8 +24,12 @@ import (
 	_ "github.com/mwiget/kindbnkctl/internal/scenarios/corefiles"
 	_ "github.com/mwiget/kindbnkctl/internal/scenarios/cwcadminaccess"
 	_ "github.com/mwiget/kindbnkctl/internal/scenarios/extrespool"
+	_ "github.com/mwiget/kindbnkctl/internal/scenarios/ficdynamicip"
+	_ "github.com/mwiget/kindbnkctl/internal/scenarios/grpcroute"
 	_ "github.com/mwiget/kindbnkctl/internal/scenarios/httproutee2e"
 	_ "github.com/mwiget/kindbnkctl/internal/scenarios/proxyprotocol"
+	_ "github.com/mwiget/kindbnkctl/internal/scenarios/tcpl4lb"
+	_ "github.com/mwiget/kindbnkctl/internal/scenarios/udpl4lb"
 )
 
 func newScenarioCmd() *cobra.Command {

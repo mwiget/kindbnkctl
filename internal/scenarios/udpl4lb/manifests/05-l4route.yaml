@@ -1,0 +1,14 @@
+apiVersion: gateway.k8s.f5net.com/v1
+kind: L4Route
+metadata:
+  name: scn-udp-lb-route
+  namespace: scn-udp-lb
+spec:
+  protocol: UDP
+  parentRefs:
+  - name: scn-udp-lb-gateway
+    sectionName: udp-listener
+  rules:
+  - backendRefs:
+    - name: udp-echo
+      port: 5005

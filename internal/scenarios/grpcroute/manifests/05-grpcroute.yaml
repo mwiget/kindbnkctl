@@ -1,0 +1,17 @@
+# GRPCRoute attaches to the HTTP listener and forwards all gRPC
+# methods to the grpcbin backend. The F5 docs explicitly state that
+# hostnames, matches, filters, and multiple rules are NOT supported
+# yet, so the minimal one-rule, one-backendRef form is what we use.
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: scn-grpc-route
+  namespace: scn-grpc
+spec:
+  parentRefs:
+  - name: scn-grpc-gateway
+    sectionName: http-grpc
+  rules:
+  - backendRefs:
+    - name: grpcbin
+      port: 9000

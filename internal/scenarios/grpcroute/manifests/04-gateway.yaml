@@ -1,0 +1,21 @@
+# Per the F5 BNK GRPCRoute docs the Gateway listener must use
+# protocol HTTP (or HTTPS); gRPC is carried over HTTP/2.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: scn-grpc-gateway
+  namespace: scn-grpc
+spec:
+  gatewayClassName: bnk-gatewayclass
+  addresses:
+  - type: IPAddress
+    value: 203.0.113.108
+  listeners:
+  - name: http-grpc
+    protocol: HTTP
+    port: 50051
+    allowedRoutes:
+      namespaces: {from: Same}
+      kinds:
+      - kind: GRPCRoute
+        group: gateway.networking.k8s.io

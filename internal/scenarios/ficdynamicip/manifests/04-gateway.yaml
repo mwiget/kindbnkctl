@@ -1,0 +1,22 @@
+# Gateway WITHOUT spec.addresses — FIC must allocate one from the
+# F5BnkGateway pool. The infrastructure.parametersRef explicitly binds
+# to the F5BnkGateway in the same namespace (matches the F5 how-to
+# example for dynamic allocation).
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: scn-fic-gateway
+  namespace: scn-fic-dyn
+spec:
+  gatewayClassName: bnk-gatewayclass
+  infrastructure:
+    parametersRef:
+      group: k8s.f5net.com
+      kind: F5BnkGateway
+      name: kindbnkctl-fic
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 80
+    allowedRoutes:
+      namespaces: {from: Same}

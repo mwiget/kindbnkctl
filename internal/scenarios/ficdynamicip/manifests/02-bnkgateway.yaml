@@ -1,0 +1,17 @@
+# F5BnkGateway with a small pool — FIC will allocate the first
+# free address (.110) to the Gateway below that omits spec.addresses.
+# A range >1 ensures FIC really is picking the address rather than
+# defaulting to a single forced value.
+apiVersion: k8s.f5net.com/v1
+kind: F5BnkGateway
+metadata:
+  name: kindbnkctl-fic
+  namespace: scn-fic-dyn
+spec:
+  ingressConfig:
+    defaultListenerNetworks:
+    - name: external
+      ipv4BaseCidr: 203.0.113.0/24
+      startAddress: 203.0.113.110
+      endAddress: 203.0.113.115
+      provider: f5-ip-provider

@@ -1,0 +1,105 @@
+# Two distinct nginx Services with marker bodies that identify which
+# backend served the request. The L4Route below splits traffic 70/30
+# between them via weighted backendRefs — the verify step does ~20
+# curls and asserts traffic landed on BOTH backends (it doesn't
+# require an exact 70/30 split, which would be flaky on small sample
+# sizes).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tcp-lb-a-index
+  namespace: scn-tcp-lb
+data:
+  index.html: |
+    kindbnkctl-scenario-tcp-lb-OK backend=A
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tcp-lb-b-index
+  namespace: scn-tcp-lb
+data:
+  index.html: |
+    kindbnkctl-scenario-tcp-lb-OK backend=B
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tcp-lb-a
+  namespace: scn-tcp-lb
+  labels: {app: tcp-lb-a}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: tcp-lb-a}
+  template:
+    metadata:
+      labels: {app: tcp-lb-a}
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.27-alpine
+        ports: [{containerPort: 80}]
+        volumeMounts:
+        - {name: html, mountPath: /usr/share/nginx/html}
+        readinessProbe:
+          tcpSocket: {port: 80}
+          initialDelaySeconds: 1
+          periodSeconds: 2
+        resources:
+          requests: {cpu: 10m, memory: 16Mi}
+          limits:   {cpu: 100m, memory: 64Mi}
+      volumes:
+      - name: html
+        configMap: {name: tcp-lb-a-index}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tcp-lb-b
+  namespace: scn-tcp-lb
+  labels: {app: tcp-lb-b}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: tcp-lb-b}
+  template:
+    metadata:
+      labels: {app: tcp-lb-b}
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.27-alpine
+        ports: [{containerPort: 80}]
+        volumeMounts:
+        - {name: html, mountPath: /usr/share/nginx/html}
+        readinessProbe:
+          tcpSocket: {port: 80}
+          initialDelaySeconds: 1
+          periodSeconds: 2
+        resources:
+          requests: {cpu: 10m, memory: 16Mi}
+          limits:   {cpu: 100m, memory: 64Mi}
+      volumes:
+      - name: html
+        configMap: {name: tcp-lb-b-index}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tcp-lb-a
+  namespace: scn-tcp-lb
+spec:
+  selector: {app: tcp-lb-a}
+  ports:
+  - {name: http, port: 80, targetPort: 80, protocol: TCP}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tcp-lb-b
+  namespace: scn-tcp-lb
+spec:
+  selector: {app: tcp-lb-b}
+  ports:
+  - {name: http, port: 80, targetPort: 80, protocol: TCP}

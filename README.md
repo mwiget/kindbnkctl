@@ -397,15 +397,44 @@ Scoring of the [F5 BNK how-tos index](https://clouddocs.f5.com/bigip-next-for-ku
 | 9 | [Proxy Protocol iRule support for L4 routes](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/proxy-protocol.html) | 🟢 | [`proxy-protocol-l4`](internal/scenarios/proxyprotocol) | 24s |
 | 10 | [Load Balance Traffic to External Resources](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/how-tos/configure-external-resource-load-balancing.html) | 🟢 | [`external-resource-pool`](internal/scenarios/extrespool) | 14s |
 
+Plus four scenarios drawn from the BNK Use-Cases / CRD pages rather
+than the how-tos index:
+
+| Use-case | Rating | Scenario |
+|---|---|---|
+| [Dynamic IP address allocation (FIC for Gateway API)](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/use-cases/bnk-ficforgatewayapi.html) | 🟡 | [`fic-dynamic-ip`](internal/scenarios/ficdynamicip) |
+| TCP load balancer ([`L4Route`](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/custom-resource-definitions/bnk-gateway-api-l4route.html) protocol=TCP, weighted backends) | 🟢 | [`tcp-l4-loadbalance`](internal/scenarios/tcpl4lb) |
+| UDP load balancer ([`L4Route`](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/custom-resource-definitions/bnk-gateway-api-l4route.html) protocol=UDP, socat echo) | 🟢 | [`udp-l4-loadbalance`](internal/scenarios/udpl4lb) |
+| gRPC routing ([`GRPCRoute`](https://clouddocs.f5.com/bigip-next-for-kubernetes/latest/custom-resource-definitions/bnk-gateway-api-grpcroute.html), grpcbin backend, grpcurl client) | 🟡 | [`grpc-loadbalance`](internal/scenarios/grpcroute) |
+
+`fic-dynamic-ip` (🟡): manifest-side configuration applies cleanly
+(F5BnkGateway, Gateway w/ infrastructure.parametersRef, HTTPRoute)
+but Gateway never reaches Programmed=True. f5-cne-controller logs
+"No IPAM found for Gateway" — the F5BnkGateway pool isn't auto-
+converted into IPAM/IPAMRange CRs in this BNK 2.3.0 demo
+deployment. The scenario asserts the control-plane state and
+surfaces the AddressNotAssigned condition as informational.
+
+`grpc-loadbalance` (🟡): GRPCRoute reconciles, Gateway reaches
+Programmed=True, BGP route propagates, grpcurl installs SHA-
+verified, and a direct grpcurl-to-backend Service call lists
+all gRPC services successfully. But cleartext gRPC traffic
+through the Gateway returns RST_STREAM(INTERNAL_ERROR) — TMM's
+standard HTTP/json/httprouter profile chain (visible in audit
+logs) breaks gRPC framing. Setting `appProtocol: kubernetes.io/h2c`
+on the Service didn't change it. Likely needs HTTPS listener
+with TLS + ALPN h2 (kindbnkctl doesn't plumb TLS) or a BNK
+profile override not yet exposed through the Gateway API CRDs.
+
 Wall times measured on a fresh `e2e` (cluster destroy + redeploy)
 running 2026-05-21 on a Linux laptop. The two TMM-restarting
 scenarios (`bgp-peer-frr` + `core-file-collection`) dominate at
 ~3 minutes each; the others are tens of seconds because they
 either don't touch TMM or piggyback on the bridge already up.
-`kindbnkctl scenario run --all` completes the eight green
-scenarios in **7m58s** (topo-sorted, deps before dependents),
-writing an aggregate `reports/<stamp>/run.{json,md}` summary
-alongside the per-scenario JSONs.
+`kindbnkctl scenario run --all` runs every green-rated scenario
+in topo-sorted dependency order, writing an aggregate
+`reports/<stamp>/run.{json,md}` summary alongside the per-scenario
+JSONs.
 
 Cluster bring-up itself (`kindbnkctl e2e`) is **5m44s**:
 validate 0s · cluster-up 48s · deploy-prereqs 20s · deploy-flo

@@ -1,0 +1,45 @@
+# UDP echo backend — alpine/socat replies with a marker string for
+# every received datagram. Two replicas; we don't assert distribution
+# (UDP LB is per-flow hashed; a single source pod usually pins).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: udp-echo
+  namespace: scn-udp-lb
+  labels: {app: udp-echo}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: udp-echo}
+  template:
+    metadata:
+      labels: {app: udp-echo}
+    spec:
+      containers:
+      - name: udp-echo
+        # alpine/socat ships /usr/bin/socat as the entrypoint; args
+        # become socat options. UDP-LISTEN with fork creates a child
+        # per datagram; SYSTEM 'echo ...' writes the marker line back
+        # over UDP to the sender.
+        image: alpine/socat:1.8.0.0
+        # Force IPv4 (UDP4-LISTEN) — bare `UDP-LISTEN` on alpine/socat
+        # 1.8.x rejects with "unknown address family 0" when no explicit
+        # family is given.
+        args:
+        - "-v"
+        - "UDP4-LISTEN:5005,fork,reuseaddr"
+        - "SYSTEM:echo kindbnkctl-scenario-udp-lb-OK"
+        ports: [{containerPort: 5005, protocol: UDP}]
+        resources:
+          requests: {cpu: 10m, memory: 16Mi}
+          limits:   {cpu: 100m, memory: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: udp-echo
+  namespace: scn-udp-lb
+spec:
+  selector: {app: udp-echo}
+  ports:
+  - {name: udp, port: 5005, targetPort: 5005, protocol: UDP}
