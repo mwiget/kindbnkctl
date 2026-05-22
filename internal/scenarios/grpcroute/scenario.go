@@ -1,7 +1,7 @@
 // Package grpcroute implements scenario "grpc-loadbalance" — F5 BNK
 // GRPCRoute CRD with a moul/grpcbin backend.
 //
-// The Gateway uses an HTTP listener on port 9000 (per the F5 BNK
+// The Gateway uses an HTTP listener on port 50051 (per the F5 BNK
 // GRPCRoute doc, gRPC is carried over an HTTP/HTTPS listener). The
 // GRPCRoute forwards every method to the grpcbin Service. Verify
 // downloads the pinned grpcurl binary (SHA-256 verified, lesson
@@ -68,13 +68,15 @@ Status as of BNK 2.3.0 in kindbnkctl's demo-TMM shape (🟡):
     addsvc.Add, grpcbin.GRPCBin, ServerReflection, hello.HelloService).
   - grpcurl through the Gateway returns
     "rpc error: code = Internal desc = stream terminated by
-    RST_STREAM with error code: INTERNAL_ERROR". The cleartext
-    h2c chain through TMM's standard HTTP/json profile stack
-    breaks gRPC framing. Setting appProtocol kubernetes.io/h2c
-    on the backend Service did not change the outcome, nor did
-    moving the listener off the backend's port. Likely needs an
-    HTTPS listener with TLS + ALPN h2 (which kindbnkctl doesn't
-    plumb), or a BNK profile-override path not yet exposed via
+    RST_STREAM with error code: INTERNAL_ERROR". Investigation
+    confirmed that TMM's FLO controller unconditionally applies
+    profile-http + profile-json + profile-httprouter to all
+    listener types (HTTP and HTTPS), which corrupts HTTP/2 binary
+    frames regardless of TLS termination. Setting appProtocol
+    kubernetes.io/h2c on the backend Service has no effect on the
+    client-side profile chain. This is a BNK 2.3.0 FLO limitation.
+    Likely needs a "raw HTTP/2 passthrough" mode for GRPCRoute
+    listeners, or a BNK profile-override path not yet exposed via
     the Gateway API CRDs.
 
 The scenario therefore asserts the control-plane state only and
