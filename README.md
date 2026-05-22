@@ -421,10 +421,16 @@ verified, and a direct grpcurl-to-backend Service call lists
 all gRPC services successfully. But cleartext gRPC traffic
 through the Gateway returns RST_STREAM(INTERNAL_ERROR) — TMM's
 standard HTTP/json/httprouter profile chain (visible in audit
-logs) breaks gRPC framing. Setting `appProtocol: kubernetes.io/h2c`
-on the Service didn't change it. Likely needs HTTPS listener
-with TLS + ALPN h2 (kindbnkctl doesn't plumb TLS) or a BNK
-profile override not yet exposed through the Gateway API CRDs.
+logs) breaks gRPC framing. Investigation confirmed TMM
+unconditionally applies `profile-http` + `profile-json` +
+`profile-httprouter` to all listener types (HTTP and HTTPS),
+corrupting HTTP/2 binary frames regardless of TLS termination.
+Setting `appProtocol: kubernetes.io/h2c` on the Service, switching
+to an HTTPS listener on port 443 with TLS, and adding `profile-sbi`
+(all verified via TMM audit logs) did not change the outcome. This
+is a BNK 2.3.0 FLO limitation. Fix needs either a "raw HTTP/2
+passthrough" mode for GRPCRoute listeners, or a BNK profile
+override path not yet exposed through the Gateway API CRDs.
 
 Wall times measured on a fresh `e2e` (cluster destroy + redeploy)
 running 2026-05-21 on a Linux laptop. The two TMM-restarting
