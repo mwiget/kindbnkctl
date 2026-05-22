@@ -18,7 +18,7 @@
     {
       "description": "Pool CR has at least one member entry on :80",
       "ok": true,
-      "got": "10.244.239.200:80"
+      "got": "10.244.239.251:80"
     },
     {
       "description": "FRR BGP table has 203.0.113.101/32 advertised by TMM",
@@ -31,8 +31,8 @@
       "got": "5/5 curls returned marker"
     }
   ],
-  "manifest_path": "/tmp/kindbnkctl-smoke/artifacts/scenarios/external-resource-pool/01-namespace.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/external-resource-pool/02-bnkgateway.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/external-resource-pool/03-backend.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/external-resource-pool/04-gateway.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/external-resource-pool/05-pool.yaml.tmpl,/tmp/kindbnkctl-smoke/artifacts/scenarios/external-resource-pool/06-httproute.yaml",
+  "manifest_path": "/tmp/smoke/artifacts/scenarios/external-resource-pool/01-namespace.yaml,/tmp/smoke/artifacts/scenarios/external-resource-pool/02-bnkgateway.yaml,/tmp/smoke/artifacts/scenarios/external-resource-pool/03-backend.yaml,/tmp/smoke/artifacts/scenarios/external-resource-pool/04-gateway.yaml,/tmp/smoke/artifacts/scenarios/external-resource-pool/05-pool.yaml.tmpl,/tmp/smoke/artifacts/scenarios/external-resource-pool/06-httproute.yaml",
   "scenario": "external-resource-pool",
-  "started_at": "2026-05-21T14:26:36.650684139Z",
-  "duration": "37s"
+  "started_at": "2026-05-22T09:14:16.625486721Z",
+  "duration": "18s"
 }

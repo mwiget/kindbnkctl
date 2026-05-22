@@ -3,7 +3,7 @@ PoC:        smoke  (BNK 2.3.0)
 [1/6] Container-runtime preflight ...
       using docker
 [2/6] Rendering kind.yaml + ensuring cluster exists ...
-      rendered → /tmp/kindbnkctl-smoke/artifacts/kind.yaml
+      rendered → /tmp/smoke/artifacts/kind.yaml
       | Creating cluster "smoke" ...
       |  • Ensuring node image (kindest/node:v1.30.8) 🖼  ...
       |  ✓ Ensuring node image (kindest/node:v1.30.8) 🖼
@@ -22,9 +22,9 @@ PoC:        smoke  (BNK 2.3.0)
       | 
       | kubectl cluster-info --context kind-smoke
       | 
-      | Have a question, bug, or feature request? Let us know! https://kind.sigs.k8s.io/#community 🙂
+      | Have a nice day! 👋
 [3/6] Fetching kubeconfig ...
-      /tmp/kindbnkctl-smoke/artifacts/kubeconfig
+      /tmp/smoke/artifacts/kubeconfig
 [4/6] Applying Calico CNI + NetworkAttachmentDefinition CRD ...
       | poddisruptionbudget.policy/calico-kube-controllers created
       | serviceaccount/calico-kube-controllers created
@@ -62,9 +62,7 @@ PoC:        smoke  (BNK 2.3.0)
 [5/6] Labelling worker node for TMM ...
       | node/smoke-worker labeled
 [6/6] bnk-forge registration ...
-  bnk-forge is up at https://localhost.
-      created bnk-forge project "smoke" (id=8)
-      registered cluster "smoke" (id=8). open https://localhost
+      skipped (disabled or --skip-bnk-forge)
       poc.yaml updated
 
 DONE.  Next: `kindbnkctl deploy prereqs && deploy flo && deploy cne` (or run e2e).

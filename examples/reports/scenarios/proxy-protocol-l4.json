@@ -36,8 +36,8 @@
       "got": "5/5 curls saw marker + non-empty proxy_addr — last body: kindbnkctl-scenario-proxy-protocol-OK proxy_addr=192.168.99.20"
     }
   ],
-  "manifest_path": "/tmp/kindbnkctl-smoke/artifacts/scenarios/proxy-protocol-l4/01-namespace.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/proxy-protocol-l4/02-bnkgateway.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/proxy-protocol-l4/03-backend.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/proxy-protocol-l4/04-gateway.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/proxy-protocol-l4/05-irule.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/proxy-protocol-l4/06-l4route.yaml,/tmp/kindbnkctl-smoke/artifacts/scenarios/proxy-protocol-l4/07-bnknetpolicy.yaml",
+  "manifest_path": "/tmp/smoke/artifacts/scenarios/proxy-protocol-l4/01-namespace.yaml,/tmp/smoke/artifacts/scenarios/proxy-protocol-l4/02-bnkgateway.yaml,/tmp/smoke/artifacts/scenarios/proxy-protocol-l4/03-backend.yaml,/tmp/smoke/artifacts/scenarios/proxy-protocol-l4/04-gateway.yaml,/tmp/smoke/artifacts/scenarios/proxy-protocol-l4/05-irule.yaml,/tmp/smoke/artifacts/scenarios/proxy-protocol-l4/06-l4route.yaml,/tmp/smoke/artifacts/scenarios/proxy-protocol-l4/07-bnknetpolicy.yaml",
   "scenario": "proxy-protocol-l4",
-  "started_at": "2026-05-21T14:27:42.348904207Z",
-  "duration": "29s"
+  "started_at": "2026-05-22T09:15:03.630890878Z",
+  "duration": "18s"
 }

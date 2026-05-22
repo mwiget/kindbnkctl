@@ -23,8 +23,8 @@
       "got": "value=True"
     }
   ],
-  "manifest_path": "/tmp/kindbnkctl-smoke/artifacts/scenarios/core-file-collection/01-cneinstance-patch.yaml",
+  "manifest_path": "/tmp/smoke/artifacts/scenarios/core-file-collection/01-cneinstance-patch.yaml",
   "scenario": "core-file-collection",
-  "started_at": "2026-05-21T14:23:27.418753692Z",
-  "duration": "3m1s"
+  "started_at": "2026-05-22T09:11:06.622841986Z",
+  "duration": "3m0s"
 }

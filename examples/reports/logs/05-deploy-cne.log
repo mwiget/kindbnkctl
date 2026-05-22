@@ -1,8 +1,8 @@
 PoC:     smoke
-Cluster: /tmp/kindbnkctl-smoke/artifacts/kubeconfig
+Cluster: /tmp/smoke/artifacts/kubeconfig
 
 [1/4] Rendering + applying CNEInstance (demoMode=true) ...
-      rendered → /tmp/kindbnkctl-smoke/artifacts/cne-instance-rendered.yaml
+      rendered → /tmp/smoke/artifacts/cne-instance-rendered.yaml
       | cneinstance.k8s.f5.com/bnk-instance created
 [2/4] Waiting for license CRD, then applying License CR ...
       | customresourcedefinition.apiextensions.k8s.io/licenses.k8s.f5net.com condition met

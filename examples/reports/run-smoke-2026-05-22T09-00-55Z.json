@@ -1,0 +1,320 @@
+{
+  "poc_name": "smoke",
+  "started_at": "2026-05-22T09:00:55.069434233Z",
+  "finished_at": "2026-05-22T09:16:54.439674134Z",
+  "environment": {
+    "os": "linux",
+    "arch": "amd64",
+    "kernel": "6.8.0-117-generic",
+    "hostname": "lake1",
+    "cpu_cores": 28,
+    "cpu_model": "Intel(R) Core(TM) i7-14700",
+    "mem_total_kb": 197598604,
+    "docker_version": "29.5.2",
+    "kind_version": "kind v0.26.0",
+    "kubectl_client_version": "v1.35.5",
+    "go_version": "go1.26.1",
+    "kindbnkctl_version": "dev",
+    "bnk_version": "2.3.0",
+    "cne_manifest_version": "2.3.0-3.2598.3-0.0.170",
+    "k8s_server_version": "v1.30.8",
+    "kind_cluster_name": "smoke",
+    "nodes": [
+      {
+        "name": "smoke-control-plane",
+        "role": "control-plane",
+        "ready": "True",
+        "k8s_version": "v1.30.8",
+        "os_image": "Debian GNU/Linux 12 (bookworm)",
+        "container_runtime": "containerd://1.7.24",
+        "pods": 10
+      },
+      {
+        "name": "smoke-worker",
+        "role": "worker",
+        "ready": "True",
+        "k8s_version": "v1.30.8",
+        "os_image": "Debian GNU/Linux 12 (bookworm)",
+        "container_runtime": "containerd://1.7.24",
+        "pods": 25
+      }
+    ],
+    "pod_namespaces": [
+      {
+        "namespace": "kube-system",
+        "count": 11
+      },
+      {
+        "namespace": "f5-cne-core",
+        "count": 10
+      },
+      {
+        "namespace": "default",
+        "count": 9
+      },
+      {
+        "namespace": "cert-manager",
+        "count": 3
+      },
+      {
+        "namespace": "local-path-storage",
+        "count": 2
+      },
+      {
+        "namespace": "f5-operators",
+        "count": 1
+      }
+    ],
+    "key_pods": [
+      {
+        "namespace": "default",
+        "name": "f5-afm-7699b8fb47-msmvz",
+        "node": "smoke-worker",
+        "ready": "1/1",
+        "status": "Running"
+      },
+      {
+        "namespace": "default",
+        "name": "f5-cne-controller-7dd664dcf9-bwvvr",
+        "node": "smoke-worker",
+        "ready": "4/4",
+        "status": "Running"
+      },
+      {
+        "namespace": "default",
+        "name": "f5-downloader-58bc6d79bd-vqfnb",
+        "node": "smoke-worker",
+        "ready": "2/2",
+        "status": "Running"
+      },
+      {
+        "namespace": "default",
+        "name": "f5-dssm-db-0",
+        "node": "smoke-worker",
+        "ready": "2/2",
+        "status": "Running"
+      },
+      {
+        "namespace": "default",
+        "name": "f5-dssm-db-1",
+        "node": "smoke-worker",
+        "ready": "2/2",
+        "status": "Running"
+      },
+      {
+        "namespace": "default",
+        "name": "f5-dssm-db-2",
+        "ready": "0/0",
+        "status": "Pending"
+      },
+      {
+        "namespace": "default",
+        "name": "f5-dssm-sentinel-0",
+        "node": "smoke-worker",
+        "ready": "2/2",
+        "status": "Running"
+      },
+      {
+        "namespace": "default",
+        "name": "f5-dssm-sentinel-1",
+        "node": "smoke-worker",
+        "ready": "1/2",
+        "status": "Running"
+      },
+      {
+        "namespace": "default",
+        "name": "f5-tmm-86d57455b8-9pc5c",
+        "node": "smoke-worker",
+        "ready": "6/6",
+        "status": "Running"
+      },
+      {
+        "namespace": "f5-cne-core",
+        "name": "f5-crdconversion-7ccff56cdc-52rls",
+        "node": "smoke-worker",
+        "ready": "1/1",
+        "status": "Running"
+      },
+      {
+        "namespace": "f5-cne-core",
+        "name": "f5-ipam-ctlr-d65bf74bb-mhcnw",
+        "node": "smoke-worker",
+        "ready": "1/1",
+        "status": "Running"
+      },
+      {
+        "namespace": "f5-cne-core",
+        "name": "f5-observer-0",
+        "node": "smoke-worker",
+        "ready": "1/1",
+        "status": "Running"
+      },
+      {
+        "namespace": "f5-cne-core",
+        "name": "f5-observer-operator-b955fd659-4zlxt",
+        "node": "smoke-worker",
+        "ready": "1/1",
+        "status": "Running"
+      },
+      {
+        "namespace": "f5-cne-core",
+        "name": "f5-observer-receiver-0",
+        "node": "smoke-worker",
+        "ready": "1/1",
+        "status": "Running"
+      },
+      {
+        "namespace": "f5-cne-core",
+        "name": "f5-rabbit-55bb7789f-j9rzg",
+        "node": "smoke-worker",
+        "ready": "1/1",
+        "status": "Running"
+      },
+      {
+        "namespace": "f5-cne-core",
+        "name": "f5-spk-csrc-bch5z",
+        "node": "smoke-worker",
+        "ready": "1/1",
+        "status": "Running"
+      },
+      {
+        "namespace": "f5-cne-core",
+        "name": "f5-spk-cwc-589456c5fb-nwcfj",
+        "node": "smoke-worker",
+        "ready": "2/2",
+        "status": "Running"
+      }
+    ]
+  },
+  "phases": [
+    {
+      "index": 1,
+      "phase": "validate",
+      "status": "ok",
+      "started_at": "2026-05-22T09:00:55.301367949Z",
+      "duration": "0s",
+      "log_path": "logs/01-validate.log",
+      "command": "/tmp/kindbnkctl validate --poc /tmp/smoke",
+      "summary": "completed in 0s"
+    },
+    {
+      "index": 2,
+      "phase": "cluster-up",
+      "status": "ok",
+      "started_at": "2026-05-22T09:00:55.304027112Z",
+      "duration": "47s",
+      "log_path": "logs/02-cluster-up.log",
+      "command": "/tmp/kindbnkctl cluster up --poc /tmp/smoke --yolo --confirm-cluster smoke",
+      "summary": "completed in 47s"
+    },
+    {
+      "index": 3,
+      "phase": "deploy-prereqs",
+      "status": "ok",
+      "started_at": "2026-05-22T09:01:43.203438956Z",
+      "duration": "25s",
+      "log_path": "logs/03-deploy-prereqs.log",
+      "command": "/tmp/kindbnkctl deploy prereqs --poc /tmp/smoke --yolo --confirm-deploy smoke",
+      "summary": "completed in 25s"
+    },
+    {
+      "index": 4,
+      "phase": "deploy-flo",
+      "status": "ok",
+      "started_at": "2026-05-22T09:02:08.260122002Z",
+      "duration": "24s",
+      "log_path": "logs/04-deploy-flo.log",
+      "command": "/tmp/kindbnkctl deploy flo --poc /tmp/smoke --yolo --confirm-deploy smoke",
+      "summary": "completed in 24s"
+    },
+    {
+      "index": 5,
+      "phase": "deploy-cne",
+      "status": "ok",
+      "started_at": "2026-05-22T09:02:32.371270403Z",
+      "duration": "4m23s",
+      "log_path": "logs/05-deploy-cne.log",
+      "command": "/tmp/kindbnkctl deploy cne --poc /tmp/smoke --yolo --confirm-deploy smoke",
+      "summary": "completed in 4m23s"
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "bgp-peer-frr",
+      "rating": "green",
+      "status": "ok",
+      "duration": "3m19s",
+      "summary": "BGP Established over Multus NAD; routes exchanged TMM ↔ FRR"
+    },
+    {
+      "name": "ai-semantic-cache",
+      "rating": "green",
+      "status": "ok",
+      "duration": "22s",
+      "summary": "Annotations reconciled + TMM data-plane semantic-cache iRule fires on every request"
+    },
+    {
+      "name": "ai-token-counting",
+      "rating": "green",
+      "status": "ok",
+      "duration": "23s",
+      "summary": "Gateway annotation reconciled + TMM data-plane TOKEN(...) counters fired"
+    },
+    {
+      "name": "cluster-wide-watch",
+      "rating": "green",
+      "status": "ok",
+      "duration": "4s",
+      "summary": "Single cluster-wide controller reconciled a Gateway+HTTPRoute in a brand-new namespace"
+    },
+    {
+      "name": "core-file-collection",
+      "rating": "green",
+      "status": "ok",
+      "duration": "3m0s",
+      "summary": "coreCollection enabled, CoreMond Running on hostPath, all status conditions True"
+    },
+    {
+      "name": "cwc-admin-access",
+      "rating": "green",
+      "status": "ok",
+      "duration": "9s",
+      "summary": "CWC admin API gated by mTLS + bearer token; authenticated request 200, unauthenticated and bogus-token both rejected"
+    },
+    {
+      "name": "external-resource-pool",
+      "rating": "green",
+      "status": "ok",
+      "duration": "18s",
+      "summary": "Pool reconciled, BGP route present, 5/5 curls to ext-backend via Pool succeeded"
+    },
+    {
+      "name": "http-routing-e2e",
+      "rating": "green",
+      "status": "ok",
+      "duration": "28s",
+      "summary": "control-plane reconciled + 5/5 end-to-end curls succeeded via NAD"
+    },
+    {
+      "name": "proxy-protocol-l4",
+      "rating": "green",
+      "status": "ok",
+      "duration": "18s",
+      "summary": "L4Route + iRule + BnkNetPolicy reconciled; 5/5 PROXY-prefixed connections parsed by nginx"
+    },
+    {
+      "name": "tcp-l4-loadbalance",
+      "rating": "green",
+      "status": "ok",
+      "duration": "35s",
+      "summary": "L4Route TCP LB reconciled; weight 70/30 split observed across A and B"
+    },
+    {
+      "name": "udp-l4-loadbalance",
+      "rating": "green",
+      "status": "ok",
+      "duration": "57s",
+      "summary": "L4Route UDP LB reconciled; 5/5 datagrams echoed via Gateway"
+    }
+  ]
+}

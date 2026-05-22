@@ -541,11 +541,10 @@ kind worker container's filesystem to confirm capture.
 
 A complete `e2e --with-scenarios` report from a clean cluster
 is checked in at
-[`examples/reports/run-smoke-2026-05-21T14-13-14Z.md`](examples/reports/run-smoke-2026-05-21T14-13-14Z.md)
+[`examples/reports/run-smoke-2026-05-22T09-00-55Z.md`](examples/reports/run-smoke-2026-05-22T09-00-55Z.md)
 so a reader can see the full report shape (versions, host
-resources, cluster topology, F5 control-plane pods, namespaced
-pod counts, every deploy phase, and every scenario row) without
-running anything locally.
+resources, cluster topology, F5 control-plane pods, every deploy
+phase, and every scenario row) without running anything locally.
 
 Reproduce on your own host with:
 
@@ -560,9 +559,11 @@ kindbnkctl e2e \
 Output lands at `<pocdir>/reports/<stamp>/run-<pocname>-<stamp>.md`
 (plus the JSON twin, per-phase logs under `logs/`, and
 per-scenario JSONs under `scenarios/`).
-Expect ~15 minutes total on a warm Docker cache: ~6 minutes deploy
-(validate → cluster-up → deploy-prereqs/flo/cne) plus ~8 minutes
-running the eight green scenarios in topo-sorted dependency order.
+The checked-in report ran 15m59s end-to-end: ~6m deploy
+(validate → cluster-up → deploy-prereqs/flo/cne) plus ~9m
+running 11 green scenarios topo-sorted by dependency order
+(the two amber scenarios — `fic-dynamic-ip` and `grpc-loadbalance`
+— are skipped by `--all` and must be run explicitly).
 
 ## Testing
 
