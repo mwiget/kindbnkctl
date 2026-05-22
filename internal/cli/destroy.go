@@ -74,6 +74,10 @@ func runDestroy(ctx context.Context, out io.Writer, f *destroyFlags) error {
 	fmt.Fprintln(out, "[1/3] bnk-forge unregister ...")
 	if !p.BNKForge.Enabled {
 		fmt.Fprintln(out, "      skipped (bnk_forge.enabled=false)")
+		fmt.Fprintln(out, "      NOTE: if this PoC was previously registered with bnk-forge,")
+		fmt.Fprintln(out, "            its row still points at the (now-dead) apiserver. Either")
+		fmt.Fprintln(out, "            flip bnk_forge.enabled=true and re-run destroy, or run")
+		fmt.Fprintln(out, "            `kindbnkctl bnk-forge unregister --poc <dir>` manually.")
 	} else {
 		if err := unregisterFromBNKForge(ctx, out, p); err != nil {
 			if errors.Is(err, bnkforge.ErrNotRunning) {

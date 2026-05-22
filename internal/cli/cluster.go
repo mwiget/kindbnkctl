@@ -260,20 +260,39 @@ func registerWithBNKForge(ctx context.Context, out io.Writer, repo string, p *po
 		}
 		fmt.Fprintf(out, "      created bnk-forge project %q (id=%d)\n", p.Metadata.Name, projectID)
 	}
-	// Cluster registration.
+	// Cluster registration with drift detection: when a cluster row
+	// already exists for this PoC name, compare the stored apiserver
+	// URL against the localized kubeconfig. If they differ, the row
+	// is stale (e.g. destroy + redeploy with the same PoC name; kind
+	// rotates the apiserver port on each create) — DELETE the stale
+	// row and POST a fresh one so bnk-forge talks to the new cluster.
 	clusters, err := cli.ListProjectClusters(ctx, projectID)
 	if err != nil {
 		return err
 	}
-	for _, c := range clusters {
-		if c.Name == p.Metadata.Name {
-			fmt.Fprintf(out, "      cluster %q already registered (id=%d)\n", p.Metadata.Name, c.ID)
-			return nil
-		}
-	}
 	body, err := os.ReadFile(filepath.Join(repo, "artifacts", "kubeconfig"))
 	if err != nil {
 		return err
+	}
+	localServer, err := bnkforge.KubeconfigAPIServer(body)
+	if err != nil {
+		return fmt.Errorf("read local kubeconfig: %w", err)
+	}
+	for _, c := range clusters {
+		if c.Name != p.Metadata.Name {
+			continue
+		}
+		if localServer != "" && c.APIServer != "" && c.APIServer == localServer {
+			fmt.Fprintf(out, "      cluster %q already registered (id=%d, kubeconfig matches %s)\n",
+				p.Metadata.Name, c.ID, c.APIServer)
+			return nil
+		}
+		fmt.Fprintf(out, "      cluster %q stored kubeconfig drifted (stored=%q local=%q) — refreshing registration (id=%d)\n",
+			p.Metadata.Name, c.APIServer, localServer, c.ID)
+		if err := cli.DeleteCluster(ctx, c.ID); err != nil {
+			return fmt.Errorf("delete stale cluster row id=%d: %w", c.ID, err)
+		}
+		break
 	}
 	id, err := cli.CreateProjectCluster(ctx, projectID, bnkforge.Cluster{
 		Name:             p.Metadata.Name,

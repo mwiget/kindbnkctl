@@ -26,6 +26,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // ErrNotRunning is the sentinel returned by RequireRunning when the
@@ -219,13 +221,23 @@ type Cluster struct {
 	DefaultNamespace string `json:"default_namespace,omitempty"`
 }
 
+// ClusterListEntry is one row from ListProjectClusters. APIServer is the
+// apiserver URL bnk-forge has stored — used by the launch flow to detect
+// kubeconfig drift when the local cluster has been destroyed and rebuilt
+// (kind rotates the apiserver port on each create, so a stored
+// "https://127.0.0.1:43601" against a fresh "https://127.0.0.1:38217" is
+// the trigger we look for).
+type ClusterListEntry struct {
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	APIServer string `json:"api_server"`
+}
+
 // ListProjectClusters GETs /api/projects/{id}/k8s/clusters and returns
-// the list. Used to check whether the cluster we're about to register
-// already exists (idempotency).
-func (c *Client) ListProjectClusters(ctx context.Context, projectID int) ([]struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
-}, error) {
+// the list. Used by the launch flow to (a) check whether the cluster
+// already exists and (b) compare the stored APIServer against the local
+// kubeconfig's apiserver URL to detect drift.
+func (c *Client) ListProjectClusters(ctx context.Context, projectID int) ([]ClusterListEntry, error) {
 	url := fmt.Sprintf("%s/api/projects/%d/k8s/clusters", c.BaseURL, projectID)
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	req.Header.Set("Authorization", "Bearer "+c.Token)
@@ -239,10 +251,7 @@ func (c *Client) ListProjectClusters(ctx context.Context, projectID int) ([]stru
 		return nil, fmt.Errorf("list project clusters %s: %s", resp.Status, truncate(string(raw), 200))
 	}
 	var out struct {
-		Clusters []struct {
-			ID   int    `json:"id"`
-			Name string `json:"name"`
-		} `json:"clusters"`
+		Clusters []ClusterListEntry `json:"clusters"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, err
@@ -363,6 +372,35 @@ func RequireRunning(ctx context.Context, cfg Config, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "  bnk-forge is up at %s.\n", cfg.URL)
 	return nil
+}
+
+// KubeconfigAPIServer extracts the apiserver URL from the first cluster
+// entry of a kubeconfig YAML body. Used by the launch flow to detect
+// drift between bnk-forge's stored cluster row and the freshly-localized
+// kubeconfig — kind rotates the apiserver port on each cluster create,
+// so a destroy+redeploy with the same PoC name leaves the bnk-forge
+// entry pointing at a dead port. Comparing server URLs catches this
+// reliably for the local-dev case; for production setups with stable
+// apiserver URLs the comparison is a no-op and no refresh fires.
+//
+// Returns ("", nil) when the kubeconfig has no clusters entry — callers
+// treat that as "can't compare, assume no drift".
+func KubeconfigAPIServer(body []byte) (string, error) {
+	var kc struct {
+		Clusters []struct {
+			Cluster struct {
+				Server string `yaml:"server"`
+			} `yaml:"cluster"`
+			Name string `yaml:"name"`
+		} `yaml:"clusters"`
+	}
+	if err := yaml.Unmarshal(body, &kc); err != nil {
+		return "", fmt.Errorf("parse kubeconfig: %w", err)
+	}
+	if len(kc.Clusters) == 0 {
+		return "", nil
+	}
+	return strings.TrimSpace(kc.Clusters[0].Cluster.Server), nil
 }
 
 func expandHome(p string) string {
