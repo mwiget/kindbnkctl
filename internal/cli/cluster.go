@@ -98,33 +98,44 @@ func runClusterUp(ctx context.Context, out io.Writer, f *clusterUpFlags) error {
 	}
 	fmt.Fprintf(out, "      using %s\n", rt)
 
-	kc := &cluster.Kind{Runtime: rt, Out: prefixWriter{w: out, prefix: "      | "}}
-	if err := kc.EnsurePresent(); err != nil {
+	prov, err := newProvisioner(rt, prefixWriter{w: out, prefix: "      | "})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "      backend %s\n", prov.Backend())
+	if err := prov.EnsurePresent(); err != nil {
 		return err
 	}
 
-	// 2. Render kind.yaml + create cluster (idempotent).
-	fmt.Fprintln(out, "[2/6] Rendering kind.yaml + ensuring cluster exists ...")
-	kindCfg, err := cluster.RenderKindConfig(cluster.KindConfig{Name: p.Cluster.Name})
+	// 2. Render the backend config + create cluster (idempotent).
+	cfgName := prov.ConfigArtifact()
+	fmt.Fprintf(out, "[2/6] Rendering %s + ensuring cluster exists ...\n", cfgName)
+	clusterCfg, err := prov.RenderConfig(p.Cluster.Name)
 	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Join(repo, "artifacts"), 0o755); err != nil {
 		return err
 	}
-	rendered := filepath.Join(repo, "artifacts", "kind.yaml")
-	if err := os.WriteFile(rendered, []byte(kindCfg), 0o644); err != nil {
+	rendered := filepath.Join(repo, "artifacts", cfgName)
+	if err := os.WriteFile(rendered, []byte(clusterCfg), 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "      rendered → %s\n", rendered)
-	exists, err := kc.ClusterExists(ctx, p.Cluster.Name)
+	exists, err := prov.ClusterExists(ctx, p.Cluster.Name)
 	if err != nil {
 		return err
 	}
 	if exists {
 		fmt.Fprintf(out, "      cluster %q already exists — leaving in place\n", p.Cluster.Name)
 	} else {
-		if err := kc.CreateCluster(ctx, p.Cluster.Name, kindCfg, p.Versions.KindNodeImage); err != nil {
+		// kind takes the kindest/node image from poc.yaml; k3d defaults
+		// its own k3s image (poc.yaml's kind_node_image doesn't apply).
+		nodeImage := p.Versions.KindNodeImage
+		if prov.Backend() == cluster.BackendK3d {
+			nodeImage = prov.DefaultNodeImage()
+		}
+		if err := prov.CreateCluster(ctx, p.Cluster.Name, clusterCfg, nodeImage); err != nil {
 			return err
 		}
 	}
@@ -132,7 +143,7 @@ func runClusterUp(ctx context.Context, out io.Writer, f *clusterUpFlags) error {
 	// 3. Fetch kubeconfig early — Calico apply uses it.
 	fmt.Fprintln(out, "[3/6] Fetching kubeconfig ...")
 	kubeconfigPath := filepath.Join(repo, "artifacts", "kubeconfig")
-	if err := kc.WriteKubeconfig(ctx, p.Cluster.Name, kubeconfigPath); err != nil {
+	if err := prov.WriteKubeconfig(ctx, p.Cluster.Name, kubeconfigPath); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "      %s\n", kubeconfigPath)
@@ -174,15 +185,15 @@ func runClusterUp(ctx context.Context, out io.Writer, f *clusterUpFlags) error {
 	// (203.0.113.0/24) is plumbed entirely via the bnk-bgp Multus
 	// NAD bridge that scenarios create on demand.
 	dc := &cluster.DockerCLI{Runtime: rt, Out: prefixWriter{w: out, prefix: "      | "}}
-	nodes, err := dc.NodeContainers(ctx, p.Cluster.Name)
+	nodes, err := dc.NodeContainers(ctx, prov.NodeContainerLabel(p.Cluster.Name))
 	if err != nil {
 		return err
 	}
 	if len(nodes) == 0 {
-		return fmt.Errorf("no kind node containers found for cluster %q — `kind get clusters` says otherwise?", p.Cluster.Name)
+		return fmt.Errorf("no %s node containers found for cluster %q — does `%s` list it?", prov.Backend(), p.Cluster.Name, prov.Tool())
 	}
 	fmt.Fprintln(out, "[5/6] Labelling worker node for TMM ...")
-	workerNode := p.Cluster.Name + "-worker"
+	workerNode := prov.WorkerNodeName(p.Cluster.Name)
 	labelKey, labelVal := p.BNK.TMMLabel()
 	if err := r.Kubectl(ctx, "label", "node", workerNode,
 		fmt.Sprintf("%s=%s", labelKey, labelVal), "--overwrite"); err != nil {
@@ -212,7 +223,7 @@ func runClusterUp(ctx context.Context, out io.Writer, f *clusterUpFlags) error {
 		fmt.Fprintf(j, "- cluster: %s\n- nodes: %s\n", p.Cluster.Name, strings.Join(nodes, ", "))
 		j.Close()
 	}
-	fmt.Fprintln(out, "\nDONE.  Next: `kindbnkctl deploy prereqs && deploy flo && deploy cne` (or run e2e).")
+	fmt.Fprintf(out, "\nDONE.  Next: `%s deploy prereqs && deploy flo && deploy cne` (or run e2e).\n", invocationName())
 	return nil
 }
 

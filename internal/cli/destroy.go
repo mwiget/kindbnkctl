@@ -67,7 +67,7 @@ func runDestroy(ctx context.Context, out io.Writer, f *destroyFlags) error {
 	if err != nil {
 		fmt.Fprintf(out, "WARN: container runtime detect failed: %v — will only attempt non-runtime steps\n", err)
 	}
-	kc := &cluster.Kind{Runtime: rt, Out: prefixWriter{w: out, prefix: "      | "}}
+	prov, perr := newProvisioner(rt, prefixWriter{w: out, prefix: "      | "})
 	dc := &cluster.DockerCLI{Runtime: rt, Out: prefixWriter{w: out, prefix: "      | "}}
 
 	// 1. bnk-forge unregister.
@@ -88,12 +88,14 @@ func runDestroy(ctx context.Context, out io.Writer, f *destroyFlags) error {
 		}
 	}
 
-	// 2. kind delete.
-	fmt.Fprintln(out, "[2/3] kind delete cluster ...")
-	if err := kc.EnsurePresent(); err != nil {
-		fmt.Fprintf(out, "      WARN: %v\n", err)
+	// 2. cluster delete.
+	if perr != nil {
+		fmt.Fprintf(out, "[2/3] cluster delete ...\n      WARN: %v\n", perr)
 	} else {
-		if err := kc.DeleteCluster(ctx, p.Cluster.Name); err != nil {
+		fmt.Fprintf(out, "[2/3] %s cluster delete ...\n", prov.Backend())
+		if err := prov.EnsurePresent(); err != nil {
+			fmt.Fprintf(out, "      WARN: %v\n", err)
+		} else if err := prov.DeleteCluster(ctx, p.Cluster.Name); err != nil {
 			return err
 		}
 	}

@@ -37,7 +37,9 @@ func runDoctor(ctx context.Context, out io.Writer, strict bool) error {
 	var results []checkResult
 
 	results = append(results, checkRuntime(ctx))
-	results = append(results, checkBinary(ctx, "kind", []string{"version"}))
+	// Check whichever cluster backend this invocation drives (kind by
+	// default; k3d when invoked via the k3dbnkctl symlink).
+	results = append(results, checkBinary(ctx, string(SelectedBackend()), []string{"version"}))
 	results = append(results, checkBinary(ctx, "kubectl", []string{"version", "--client=true", "--output=yaml"}))
 	results = append(results, checkBinary(ctx, "helm", []string{"version", "--short"}))
 	results = append(results, checkResources())

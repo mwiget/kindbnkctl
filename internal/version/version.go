@@ -23,6 +23,13 @@ const (
 	K8sVersion   = "1.30"
 	K8sNodeImage = "kindest/node:v1.30.8"
 
+	// K3sNodeImage is the k3d backend's node image (the `k3dbnkctl`
+	// symlink selects k3d). Pinned to the same k8s minor as K8sNodeImage
+	// so kind and k3d deploy the same BNK matrix; k3d names its image
+	// track "<k8s>-k3s1". Unlike kind's node image this is NOT carried
+	// in poc.yaml — the k3d backend defaults it.
+	K3sNodeImage = "rancher/k3s:v1.30.8-k3s1"
+
 	// K8sToolsImage bundles kubectl + helm + openssl + apk so the CWC
 	// cert-gen step (which shells gen_cert.sh inside this image) has
 	// everything it needs. Docker is already required for kind, so the

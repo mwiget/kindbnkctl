@@ -35,11 +35,39 @@ func RenderKindConfig(in KindConfig) (string, error) {
 	return b.String(), nil
 }
 
-// Kind wraps the `kind` CLI for the runtime we picked.
+// Kind wraps the `kind` CLI for the runtime we picked. It implements
+// Provisioner.
 type Kind struct {
 	Runtime Runtime
 	Out     io.Writer
 }
+
+// Backend reports this provisioner as kind.
+func (k *Kind) Backend() Backend { return BackendKind }
+
+// Tool is the CLI binary kind drives.
+func (k *Kind) Tool() string { return "kind" }
+
+// RenderConfig renders the embedded kind.yaml.tmpl.
+func (k *Kind) RenderConfig(name string) (string, error) {
+	return RenderKindConfig(KindConfig{Name: name})
+}
+
+// ConfigArtifact is the filename the rendered kind config lands at.
+func (k *Kind) ConfigArtifact() string { return "kind.yaml" }
+
+// WorkerNodeName is the k8s node name of kind's worker node. kind names
+// node containers (and thus k8s nodes) "<cluster>-worker".
+func (k *Kind) WorkerNodeName(name string) string { return name + "-worker" }
+
+// NodeContainerLabel selects kind's node containers for this cluster.
+func (k *Kind) NodeContainerLabel(name string) string {
+	return "io.x-k8s.kind.cluster=" + name
+}
+
+// DefaultNodeImage returns "" — kind's node image is supplied by the
+// caller (poc.yaml's kind_node_image), not defaulted here.
+func (k *Kind) DefaultNodeImage() string { return "" }
 
 func (k *Kind) cmd(ctx context.Context, args ...string) *exec.Cmd {
 	c := exec.CommandContext(ctx, "kind", args...)

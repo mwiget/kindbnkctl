@@ -1,0 +1,39 @@
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: {{.Name}}
+# Same two-node shape as the kind backend: one server (combined
+# control-plane + worker) and one agent (the TMM worker, labelled
+# app=f5-tmm by `cluster up`).
+servers: 1
+agents: 1
+options:
+  k3d:
+    # No serverlb container — keeps the footprint to exactly two node
+    # containers so the kind-vs-k3d resource comparison is apples-to-
+    # apples. The kubeconfig points straight at the server's mapped
+    # API port.
+    disableLoadbalancer: true
+  k3s:
+    extraArgs:
+      # Disable k3s's bundled flannel + network-policy so Calico is the
+      # CNI on both backends (kind sets disableDefaultCNI: true for the
+      # same reason). Nodes stay NotReady until `cluster up` applies the
+      # pinned Calico manifest.
+      - arg: --flannel-backend=none
+        nodeFilters:
+          - server:*
+      - arg: --disable-network-policy
+        nodeFilters:
+          - server:*
+      # Drop the k3s extras kind doesn't ship, so neither side carries
+      # weight the other lacks.
+      - arg: --disable=traefik
+        nodeFilters:
+          - server:*
+      - arg: --disable=servicelb
+        nodeFilters:
+          - server:*
+      - arg: --disable=metrics-server
+        nodeFilters:
+          - server:*

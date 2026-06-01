@@ -180,7 +180,8 @@ below.
 | Tool | Why |
 |---|---|
 | **Docker** or **Podman** | kind runs Kubernetes nodes as containers; FLO + cert-gen also shell into an `alpine/k8s:1.31.5` container at deploy time |
-| **kind** | cluster bring-up |
+| **kind** | cluster bring-up (default backend) |
+| **k3d** *(optional)* | alternative backend, selected via the `k3dbnkctl` symlink (see [Cluster backend](#cluster-backend-kind--k3d)) |
 | **kubectl** | cluster reads/writes (apply, wait, label) |
 | **helm** | cert-manager + FLO install, release-manifest pull |
 | **git** *(optional)* | `init` git-inits the PoC repo (skippable with `--no-git`) |
@@ -196,6 +197,25 @@ What customers supply themselves, dropped into `keys/` of the PoC repo
 
 - FAR tarball — image-pull credentials for `repo.f5.com`
 - JWT — TEEM activation token
+
+## Cluster backend (kind / k3d)
+
+kind is the default backend. **k3d** (k3s-in-docker) is available as an
+option, selected by the binary's own name: symlink `k3dbnkctl` to the
+installed `kindbnkctl` and invoke the symlink to drive k3d instead.
+
+```bash
+ln -sf kindbnkctl ~/.local/bin/k3dbnkctl
+k3dbnkctl cluster up --poc demo --yolo --confirm-cluster demo   # uses k3d
+kindbnkctl cluster up --poc demo --yolo --confirm-cluster demo  # uses kind
+```
+
+Both backends build the same two-node, Calico-CNI, k8s-v1.30.8 shape and
+share the entire BNK deploy pipeline. Warm, k3d brings the cluster up
+~18 % faster and idles ~200 MiB lighter (5 pods vs 12). Full
+measurements and the trade-offs are in
+[docs/kind-vs-k3d.md](docs/kind-vs-k3d.md). (Requires the `k3d` CLI on
+PATH; `k3dbnkctl doctor` checks for it.)
 
 ## Quick start
 

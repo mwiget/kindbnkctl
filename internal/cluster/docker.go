@@ -126,12 +126,16 @@ func (d *DockerCLI) IsAttached(ctx context.Context, network, container string) (
 }
 
 // NodeContainers returns the docker container names of the cluster's
-// nodes. kind names them `<cluster>-control-plane` and `<cluster>-worker`
-// (additional workers get `-worker2`, `-worker3`, ...).
-func (d *DockerCLI) NodeContainers(ctx context.Context, clusterName string) ([]string, error) {
+// nodes, matched by the backend's node-container label filter (kind:
+// `io.x-k8s.kind.cluster=<name>` → `<cluster>-control-plane` /
+// `<cluster>-worker`; k3d: `k3d.cluster=<name>` → `k3d-<cluster>-server-0`
+// / `k3d-<cluster>-agent-0`). The filter is supplied by the
+// Provisioner via NodeContainerLabel.
+func (d *DockerCLI) NodeContainers(ctx context.Context, labelFilter string) ([]string, error) {
 	// We can't trust `kind get nodes` for the exact container names on
-	// older kind versions; ask the runtime directly.
-	c := d.cmd(ctx, "ps", "--filter", "label=io.x-k8s.kind.cluster="+clusterName,
+	// older kind versions (and k3d names them differently); ask the
+	// runtime directly with the backend's node-container label.
+	c := d.cmd(ctx, "ps", "--filter", "label="+labelFilter,
 		"--format", "{{.Names}}")
 	var stdout bytes.Buffer
 	c.Stdout = &stdout
