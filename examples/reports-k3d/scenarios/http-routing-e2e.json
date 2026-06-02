@@ -1,0 +1,38 @@
+{
+  "status": "ok",
+  "summary": "control-plane reconciled + 5/5 end-to-end curls succeeded via NAD",
+  "assertions": [
+    {
+      "description": "nginx Deployment Available",
+      "ok": true
+    },
+    {
+      "description": "Gateway Programmed=True",
+      "ok": true
+    },
+    {
+      "description": "HTTPRoute Accepted=True",
+      "ok": true,
+      "got": "True"
+    },
+    {
+      "description": "FRR BGP table has 203.0.113.100/32 advertised by TMM",
+      "ok": true,
+      "got": "BGP table version is 18, local router ID is 192.168.99.20, vrf id 0 Default local pref 100, local AS 65001 Status codes: s suppressed, d damped, h history, * valid, \u003e best, = multipath, i internal, r …"
+    },
+    {
+      "description": "FRR kernel route 203.0.113.100/32 installed via net1",
+      "ok": true,
+      "got": "203.0.113.100 nhid 14 via 192.168.99.22 dev net1 proto bgp metric 20"
+    },
+    {
+      "description": "5/5 end-to-end curls via Gateway return nginx marker body",
+      "ok": true,
+      "got": "5/5 curls returned marker"
+    }
+  ],
+  "manifest_path": "/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/http-routing-e2e/01-gatewayclass.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/http-routing-e2e/02-namespace.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/http-routing-e2e/03-bnkgateway.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/http-routing-e2e/04-backend.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/http-routing-e2e/05-gateway.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/http-routing-e2e/06-httproute.yaml",
+  "scenario": "http-routing-e2e",
+  "started_at": "2026-06-02T14:47:07.276214873Z",
+  "duration": "32s"
+}

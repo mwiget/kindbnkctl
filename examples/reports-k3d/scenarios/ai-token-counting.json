@@ -1,0 +1,43 @@
+{
+  "status": "ok",
+  "summary": "Gateway annotation reconciled + TMM data-plane TOKEN(...) counters fired",
+  "assertions": [
+    {
+      "description": "stub-llm Deployment Available",
+      "ok": true
+    },
+    {
+      "description": "Gateway Programmed=True",
+      "ok": true
+    },
+    {
+      "description": "HTTPRoute Accepted=True",
+      "ok": true,
+      "got": "True"
+    },
+    {
+      "description": "k8s.f5.com/ai-token-counting annotation present on Gateway",
+      "ok": true,
+      "got": "token_counting=enabled, user_id_source=api_key, user_id_header=Authorization, fallback_to_ip=true, hsl_pool=hsl-logging-pool"
+    },
+    {
+      "description": "FRR BGP table has 203.0.113.103/32 advertised by TMM",
+      "ok": true,
+      "got": "learned=true"
+    },
+    {
+      "description": "3/3 curls through Gateway return stub-llm body",
+      "ok": true,
+      "got": "3/3"
+    },
+    {
+      "description": "TMM token-counting iRule fired (TOKEN(...) cumulative log lines)",
+      "ok": true,
+      "got": "\u003c134\u003eJun 2 14:43:12 f5-tmm-79778866b6-g7zlk tmm[55]: Rule scn-tokencount-gateway-scn-tokencount-token-counting \u003cJSON_RESPONSE\u003e: TOKEN(1): source=json user_ref=user-808b5bf2f1ab8cab5eee7f99dfe65b10215f19ad0edd04e8caeeb597a2dfce40 model=gpt-stub bucket…"
+    }
+  ],
+  "manifest_path": "/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/ai-token-counting/01-namespace.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/ai-token-counting/02-bnkgateway.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/ai-token-counting/03-backend.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/ai-token-counting/04-gateway.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/ai-token-counting/05-httproute.yaml",
+  "scenario": "ai-token-counting",
+  "started_at": "2026-06-02T14:42:56.208670594Z",
+  "duration": "17s"
+}

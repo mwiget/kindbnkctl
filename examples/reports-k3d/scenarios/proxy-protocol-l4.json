@@ -1,0 +1,43 @@
+{
+  "status": "ok",
+  "summary": "L4Route + iRule + BnkNetPolicy reconciled; 5/5 PROXY-prefixed connections parsed by nginx",
+  "assertions": [
+    {
+      "description": "pp-backend Deployment Available",
+      "ok": true
+    },
+    {
+      "description": "Gateway Programmed=True",
+      "ok": true
+    },
+    {
+      "description": "L4Route Accepted=True",
+      "ok": true,
+      "got": "True"
+    },
+    {
+      "description": "F5BigCneIrule pp-prepend exists",
+      "ok": true,
+      "got": "pp-prepend"
+    },
+    {
+      "description": "BnkNetPolicy scn-proxy-attach exists",
+      "ok": true,
+      "got": "scn-proxy-attach"
+    },
+    {
+      "description": "FRR BGP table has 203.0.113.102/32 advertised by TMM",
+      "ok": true,
+      "got": "BGP table version is 19, local router ID is 192.168.99.20, vrf id 0 Default local pref 100, local AS 65001 Status codes: s suppressed, d damped, h history, * valid, \u003e best, = multipath, i internal, r …"
+    },
+    {
+      "description": "5/5 L4 curls carry PROXY header parsed by nginx",
+      "ok": true,
+      "got": "5/5 curls saw marker + non-empty proxy_addr — last body: kindbnkctl-scenario-proxy-protocol-OK proxy_addr=192.168.99.20"
+    }
+  ],
+  "manifest_path": "/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/proxy-protocol-l4/01-namespace.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/proxy-protocol-l4/02-bnkgateway.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/proxy-protocol-l4/03-backend.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/proxy-protocol-l4/04-gateway.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/proxy-protocol-l4/05-irule.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/proxy-protocol-l4/06-l4route.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/proxy-protocol-l4/07-bnknetpolicy.yaml",
+  "scenario": "proxy-protocol-l4",
+  "started_at": "2026-06-02T14:47:39.410817815Z",
+  "duration": "23s"
+}

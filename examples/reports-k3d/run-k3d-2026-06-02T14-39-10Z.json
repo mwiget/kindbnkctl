@@ -1,0 +1,88 @@
+{
+  "started_at": "2026-06-02T14:39:10.954193891Z",
+  "finished_at": "2026-06-02T14:49:30.523403879Z",
+  "duration": "10m19s",
+  "total": 11,
+  "passed": 11,
+  "failed": 0,
+  "skipped": 0,
+  "scenarios": [
+    {
+      "name": "bgp-peer-frr",
+      "rating": "green",
+      "status": "ok",
+      "duration": "3m18s",
+      "summary": "BGP Established over Multus NAD; routes exchanged TMM ↔ FRR"
+    },
+    {
+      "name": "ai-semantic-cache",
+      "rating": "green",
+      "status": "ok",
+      "duration": "26s",
+      "summary": "Annotations reconciled + TMM data-plane semantic-cache iRule fires on every request"
+    },
+    {
+      "name": "ai-token-counting",
+      "rating": "green",
+      "status": "ok",
+      "duration": "17s",
+      "summary": "Gateway annotation reconciled + TMM data-plane TOKEN(...) counters fired"
+    },
+    {
+      "name": "cluster-wide-watch",
+      "rating": "green",
+      "status": "ok",
+      "duration": "5s",
+      "summary": "Single cluster-wide controller reconciled a Gateway+HTTPRoute in a brand-new namespace"
+    },
+    {
+      "name": "core-file-collection",
+      "rating": "green",
+      "status": "ok",
+      "duration": "3m0s",
+      "summary": "coreCollection enabled, CoreMond Running on hostPath, all status conditions True"
+    },
+    {
+      "name": "cwc-admin-access",
+      "rating": "green",
+      "status": "ok",
+      "duration": "8s",
+      "summary": "CWC admin API gated by mTLS + bearer token; authenticated request 200, unauthenticated and bogus-token both rejected"
+    },
+    {
+      "name": "external-resource-pool",
+      "rating": "green",
+      "status": "ok",
+      "duration": "39s",
+      "summary": "Pool reconciled, BGP route present, 5/5 curls to ext-backend via Pool succeeded"
+    },
+    {
+      "name": "http-routing-e2e",
+      "rating": "green",
+      "status": "ok",
+      "duration": "32s",
+      "summary": "control-plane reconciled + 5/5 end-to-end curls succeeded via NAD"
+    },
+    {
+      "name": "proxy-protocol-l4",
+      "rating": "green",
+      "status": "ok",
+      "duration": "23s",
+      "summary": "L4Route + iRule + BnkNetPolicy reconciled; 5/5 PROXY-prefixed connections parsed by nginx"
+    },
+    {
+      "name": "tcp-l4-loadbalance",
+      "rating": "green",
+      "status": "ok",
+      "duration": "24s",
+      "summary": "L4Route TCP LB reconciled; weight 70/30 split observed across A and B"
+    },
+    {
+      "name": "udp-l4-loadbalance",
+      "rating": "green",
+      "status": "ok",
+      "duration": "1m3s",
+      "summary": "L4Route UDP LB reconciled; 5/5 datagrams echoed via Gateway"
+    }
+  ]
+}

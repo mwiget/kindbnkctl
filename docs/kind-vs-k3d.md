@@ -59,13 +59,35 @@ Docker VM). `cluster up` = create cluster → apply Calico → wait for
   exceeds the 15.6 GiB VM — but k3d will schedule *further* before
   hitting the wall because the load isn't pinned to one node.
 
+### Scenario parity
+
+The full green scenario suite has been run end-to-end on the k3d backend
+(committed under `examples/reports-k3d/`) and diffed against the kind
+reference report (`examples/reports/scenarios/`):
+
+- **11/11 green scenarios pass** on k3d (run 2026-06-02, 10m19s),
+  matching kind's 11/11.
+- **Every assertion is identical** in description and pass/fail across
+  both backends — no assertion passes on kind but fails, skips, or
+  relaxes on k3d. This includes the data-plane-heavy paths (BGP peering,
+  HTTPRoute steering, L4 TCP/UDP, semantic cache + token-counting iRules)
+  that depend on the Multus NAD / FRR / ZeBOS plumbing.
+- The only deltas are environment noise in observed values — pod IPs and
+  pod-CIDR-derived router IDs, replica-hash pod names, timestamps, BGP
+  next-hop table indices, and the license asset ID / expiry — all
+  expected to vary between two independent deployments.
+
+So the backends are at full **scenario parity**; kind stays the
+reference only by convention (it's where the committed reference report
+is regenerated), not because of any behavioral gap.
+
 ### Verdict
 
 For the demo-TMM shape, k3d is a modest win: faster cluster create and a
-lighter idle control plane, with no change to the BNK deploy path. It is
-kept as an *option* (the `k3dbnkctl` symlink), not the default — kind
-remains the reference backend the scenarios and reference report were
-validated against.
+lighter idle control plane, with no change to the BNK deploy path and
+verified scenario parity (above). It is kept as an *option* (the
+`k3dbnkctl` symlink), not the default — kind remains the reference
+backend the committed reference report is regenerated against.
 
 ## Reproducing
 

@@ -1,0 +1,29 @@
+{
+  "status": "ok",
+  "summary": "CWC admin API gated by mTLS + bearer token; authenticated request 200, unauthenticated and bogus-token both rejected",
+  "assertions": [
+    {
+      "description": "probe Deployment Available",
+      "ok": true
+    },
+    {
+      "description": "Authenticated GET /status returns HTTP 200 with license JSON",
+      "ok": true,
+      "got": "{\"Status\":{\"ClusterDetails\":{\"Name\":\"CNE Cluster\"},\"LicenseDetails\":{\"DigitalAssetID\":\"89db010f-95e8-414b-b6e5-05177cd097eb\",\"EntitlementType\":\"paid\",\"LicenseExpiryDate\":\"2026-11-28T11:23:50Z\",\"LicenseExpiryInDays\":\"178\"},\"LicenseStatus\":{\"State\":\"Ve…"
+    },
+    {
+      "description": "Unauthenticated GET /status is rejected (no token in header)",
+      "ok": true,
+      "got": "invalid token format __HTTP_CODE__=401"
+    },
+    {
+      "description": "Bogus token is rejected (constant-time compare)",
+      "ok": true,
+      "got": "invalid token __HTTP_CODE__=401"
+    }
+  ],
+  "manifest_path": "/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/cwc-admin-access/01-namespace.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/cwc-admin-access/02-probe.yaml",
+  "scenario": "cwc-admin-access",
+  "started_at": "2026-06-02T14:46:19.211805649Z",
+  "duration": "8s"
+}

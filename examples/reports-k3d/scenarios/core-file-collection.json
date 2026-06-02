@@ -1,0 +1,30 @@
+{
+  "status": "ok",
+  "summary": "coreCollection enabled, CoreMond Running on hostPath, all status conditions True",
+  "assertions": [
+    {
+      "description": "FLO auto-created a CoreMond CR",
+      "ok": true,
+      "got": "name=f5-coremond ns=f5-cne-core"
+    },
+    {
+      "description": "CoreMond DaemonSet exists with at least one desired replica",
+      "ok": true,
+      "got": "name=f5-coremond desired=1"
+    },
+    {
+      "description": "TMM Deployment template includes a core-dump volume",
+      "ok": true,
+      "got": "ipsec-certs,podinfo,config-volume,tls-tmm-qkview-grpc-svr-volume,config-shared,s6-mount,tmm-hosts,dev-tun,tls-blobd-grpc-clt-volume,tls-blobd-grpc-svr-volume,tls-qkview-blobd-grpc-svr-volume,tls-tmm-grpc-svr-volume,tls-tmm-mds-clt-volume,tmp-empty-dir,var-blobd-bcdatabase-dir,var-download-dir,run-di…"
+    },
+    {
+      "description": "CNEInstance condition (Coremond|CoreMon)Available=True",
+      "ok": true,
+      "got": "value=True"
+    }
+  ],
+  "manifest_path": "/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/core-file-collection/01-cneinstance-patch.yaml",
+  "scenario": "core-file-collection",
+  "started_at": "2026-06-02T14:43:18.485942516Z",
+  "duration": "3m0s"
+}

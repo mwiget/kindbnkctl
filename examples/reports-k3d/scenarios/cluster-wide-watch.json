@@ -1,0 +1,33 @@
+{
+  "status": "ok",
+  "summary": "Single cluster-wide controller reconciled a Gateway+HTTPRoute in a brand-new namespace",
+  "assertions": [
+    {
+      "description": "CNEInstance.spec.watchNamespaces contains \"All\"",
+      "ok": true,
+      "got": "[\"All\"]"
+    },
+    {
+      "description": "f5-cne-controller Deployment is a single replica",
+      "ok": true,
+      "got": "spec.replicas=1"
+    },
+    {
+      "description": "nginx Deployment in scn-cwatch Available",
+      "ok": true
+    },
+    {
+      "description": "Gateway in scn-cwatch Programmed=True (cross-namespace reconcile)",
+      "ok": true
+    },
+    {
+      "description": "HTTPRoute in scn-cwatch Accepted=True",
+      "ok": true,
+      "got": "True"
+    }
+  ],
+  "manifest_path": "/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/cluster-wide-watch/01-namespace.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/cluster-wide-watch/02-bnkgateway.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/cluster-wide-watch/03-backend.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/cluster-wide-watch/04-gateway.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/cluster-wide-watch/05-httproute.yaml",
+  "scenario": "cluster-wide-watch",
+  "started_at": "2026-06-02T14:43:13.38251084Z",
+  "duration": "5s"
+}

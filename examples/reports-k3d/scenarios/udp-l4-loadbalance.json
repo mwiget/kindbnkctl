@@ -1,0 +1,33 @@
+{
+  "status": "ok",
+  "summary": "L4Route UDP LB reconciled; 5/5 datagrams echoed via Gateway",
+  "assertions": [
+    {
+      "description": "udp-echo Deployment Available",
+      "ok": true
+    },
+    {
+      "description": "Gateway Programmed=True",
+      "ok": true
+    },
+    {
+      "description": "L4Route Accepted=True",
+      "ok": true,
+      "got": "True"
+    },
+    {
+      "description": "FRR BGP table has 203.0.113.107/32 advertised by TMM",
+      "ok": true,
+      "got": "BGP table version is 21, local router ID is 192.168.99.20, vrf id 0 Default local pref 100, local AS 65001 Status codes: s suppressed, d damped, h history, * valid, \u003e best, = multipath, i internal, r …"
+    },
+    {
+      "description": "5/5 UDP probes carried the marker reply",
+      "ok": true,
+      "got": "5/5 (lastBody=kindbnkctl-scenario-udp-lb-OK)"
+    }
+  ],
+  "manifest_path": "/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/udp-l4-loadbalance/01-namespace.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/udp-l4-loadbalance/02-bnkgateway.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/udp-l4-loadbalance/03-backend.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/udp-l4-loadbalance/04-gateway.yaml,/home/mwiget/git/kindbnkctl/k3d/artifacts/scenarios/udp-l4-loadbalance/05-l4route.yaml",
+  "scenario": "udp-l4-loadbalance",
+  "started_at": "2026-06-02T14:48:26.95173521Z",
+  "duration": "1m3s"
+}
