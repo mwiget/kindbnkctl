@@ -1,6 +1,6 @@
-PoC:     smoke
-Cluster: /tmp/smoke/artifacts/kubeconfig
-FAR:     /tmp/smoke/keys/f5-far-auth-key.tgz
+PoC:     demo
+Cluster: /home/mwiget/git/kindbnkctl/demo/artifacts/kubeconfig
+FAR:     /home/mwiget/git/kindbnkctl/demo/keys/f5-far-auth-key.tgz
 
 [1/5] Tools preflight ...
       ok
@@ -18,7 +18,7 @@ FAR:     /tmp/smoke/keys/f5-far-auth-key.tgz
 [5/5] Installing cert-manager ...
       | Release "cert-manager" does not exist. Installing it now.
       | NAME: cert-manager
-      | LAST DEPLOYED: Fri May 22 11:01:44 2026
+      | LAST DEPLOYED: Wed Jun  3 08:48:43 2026
       | NAMESPACE: cert-manager
       | STATUS: deployed
       | REVISION: 1

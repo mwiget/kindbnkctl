@@ -1,7 +1,7 @@
 {
-  "poc_name": "smoke",
-  "started_at": "2026-05-22T09:00:55.069434233Z",
-  "finished_at": "2026-05-22T09:16:54.439674134Z",
+  "poc_name": "demo",
+  "started_at": "2026-06-03T06:47:53.930801457Z",
+  "finished_at": "2026-06-03T07:04:36.100437743Z",
   "environment": {
     "os": "linux",
     "arch": "amd64",
@@ -9,19 +9,19 @@
     "hostname": "lake1",
     "cpu_cores": 28,
     "cpu_model": "Intel(R) Core(TM) i7-14700",
-    "mem_total_kb": 197598604,
+    "mem_total_kb": 197598616,
     "docker_version": "29.5.2",
     "kind_version": "kind v0.26.0",
     "kubectl_client_version": "v1.35.5",
     "go_version": "go1.26.1",
-    "kindbnkctl_version": "dev",
+    "kindbnkctl_version": "v2.3.0-11-5-ge5b4b83-dirty",
     "bnk_version": "2.3.0",
     "cne_manifest_version": "2.3.0-3.2598.3-0.0.170",
     "k8s_server_version": "v1.30.8",
-    "kind_cluster_name": "smoke",
+    "kind_cluster_name": "demo",
     "nodes": [
       {
-        "name": "smoke-control-plane",
+        "name": "demo-control-plane",
         "role": "control-plane",
         "ready": "True",
         "k8s_version": "v1.30.8",
@@ -30,13 +30,13 @@
         "pods": 10
       },
       {
-        "name": "smoke-worker",
+        "name": "demo-worker",
         "role": "worker",
         "ready": "True",
         "k8s_version": "v1.30.8",
         "os_image": "Debian GNU/Linux 12 (bookworm)",
         "container_runtime": "containerd://1.7.24",
-        "pods": 25
+        "pods": 26
       }
     ],
     "pod_namespaces": [
@@ -45,142 +45,150 @@
         "count": 11
       },
       {
-        "namespace": "f5-cne-core",
+        "namespace": "default",
         "count": 10
       },
       {
-        "namespace": "default",
-        "count": 9
+        "namespace": "f5-cne-core",
+        "count": 10
       },
       {
         "namespace": "cert-manager",
         "count": 3
       },
       {
-        "namespace": "local-path-storage",
-        "count": 2
+        "namespace": "f5-operators",
+        "count": 1
       },
       {
-        "namespace": "f5-operators",
+        "namespace": "local-path-storage",
         "count": 1
       }
     ],
     "key_pods": [
       {
         "namespace": "default",
-        "name": "f5-afm-7699b8fb47-msmvz",
-        "node": "smoke-worker",
+        "name": "f5-afm-7699b8fb47-4g9n6",
+        "node": "demo-worker",
         "ready": "1/1",
         "status": "Running"
       },
       {
         "namespace": "default",
-        "name": "f5-cne-controller-7dd664dcf9-bwvvr",
-        "node": "smoke-worker",
+        "name": "f5-cne-controller-7dd664dcf9-wrbc2",
+        "node": "demo-worker",
         "ready": "4/4",
         "status": "Running"
       },
       {
         "namespace": "default",
-        "name": "f5-downloader-58bc6d79bd-vqfnb",
-        "node": "smoke-worker",
+        "name": "f5-downloader-58bc6d79bd-5zdx9",
+        "node": "demo-worker",
         "ready": "2/2",
         "status": "Running"
       },
       {
         "namespace": "default",
         "name": "f5-dssm-db-0",
-        "node": "smoke-worker",
+        "node": "demo-worker",
         "ready": "2/2",
         "status": "Running"
       },
       {
         "namespace": "default",
         "name": "f5-dssm-db-1",
-        "node": "smoke-worker",
+        "node": "demo-worker",
         "ready": "2/2",
         "status": "Running"
       },
       {
         "namespace": "default",
         "name": "f5-dssm-db-2",
-        "ready": "0/0",
-        "status": "Pending"
+        "node": "demo-worker",
+        "ready": "2/2",
+        "status": "Running"
       },
       {
         "namespace": "default",
         "name": "f5-dssm-sentinel-0",
-        "node": "smoke-worker",
+        "node": "demo-worker",
         "ready": "2/2",
         "status": "Running"
       },
       {
         "namespace": "default",
         "name": "f5-dssm-sentinel-1",
-        "node": "smoke-worker",
+        "node": "demo-worker",
+        "ready": "2/2",
+        "status": "Running"
+      },
+      {
+        "namespace": "default",
+        "name": "f5-dssm-sentinel-2",
+        "node": "demo-worker",
         "ready": "1/2",
         "status": "Running"
       },
       {
         "namespace": "default",
-        "name": "f5-tmm-86d57455b8-9pc5c",
-        "node": "smoke-worker",
+        "name": "f5-tmm-86d57455b8-ffw5b",
+        "node": "demo-worker",
         "ready": "6/6",
         "status": "Running"
       },
       {
         "namespace": "f5-cne-core",
-        "name": "f5-crdconversion-7ccff56cdc-52rls",
-        "node": "smoke-worker",
+        "name": "f5-crdconversion-7ccff56cdc-j9kpk",
+        "node": "demo-worker",
         "ready": "1/1",
         "status": "Running"
       },
       {
         "namespace": "f5-cne-core",
-        "name": "f5-ipam-ctlr-d65bf74bb-mhcnw",
-        "node": "smoke-worker",
+        "name": "f5-ipam-ctlr-d65bf74bb-2fqj9",
+        "node": "demo-worker",
         "ready": "1/1",
         "status": "Running"
       },
       {
         "namespace": "f5-cne-core",
         "name": "f5-observer-0",
-        "node": "smoke-worker",
+        "node": "demo-worker",
         "ready": "1/1",
         "status": "Running"
       },
       {
         "namespace": "f5-cne-core",
-        "name": "f5-observer-operator-b955fd659-4zlxt",
-        "node": "smoke-worker",
+        "name": "f5-observer-operator-b955fd659-pdk24",
+        "node": "demo-worker",
         "ready": "1/1",
         "status": "Running"
       },
       {
         "namespace": "f5-cne-core",
         "name": "f5-observer-receiver-0",
-        "node": "smoke-worker",
+        "node": "demo-worker",
         "ready": "1/1",
         "status": "Running"
       },
       {
         "namespace": "f5-cne-core",
-        "name": "f5-rabbit-55bb7789f-j9rzg",
-        "node": "smoke-worker",
+        "name": "f5-rabbit-55bb7789f-6m7tx",
+        "node": "demo-worker",
         "ready": "1/1",
         "status": "Running"
       },
       {
         "namespace": "f5-cne-core",
-        "name": "f5-spk-csrc-bch5z",
-        "node": "smoke-worker",
+        "name": "f5-spk-csrc-87tx5",
+        "node": "demo-worker",
         "ready": "1/1",
         "status": "Running"
       },
       {
         "namespace": "f5-cne-core",
-        "name": "f5-spk-cwc-589456c5fb-nwcfj",
-        "node": "smoke-worker",
+        "name": "f5-spk-cwc-589456c5fb-ql8hh",
+        "node": "demo-worker",
         "ready": "2/2",
         "status": "Running"
       }
@@ -191,51 +199,51 @@
       "index": 1,
       "phase": "validate",
       "status": "ok",
-      "started_at": "2026-05-22T09:00:55.301367949Z",
+      "started_at": "2026-06-03T06:47:54.145334793Z",
       "duration": "0s",
       "log_path": "logs/01-validate.log",
-      "command": "/tmp/kindbnkctl validate --poc /tmp/smoke",
+      "command": "/home/mwiget/git/kindbnkctl/bin/kindbnkctl validate --poc /home/mwiget/git/kindbnkctl/demo",
       "summary": "completed in 0s"
     },
     {
       "index": 2,
       "phase": "cluster-up",
       "status": "ok",
-      "started_at": "2026-05-22T09:00:55.304027112Z",
-      "duration": "47s",
+      "started_at": "2026-06-03T06:47:54.148287611Z",
+      "duration": "48s",
       "log_path": "logs/02-cluster-up.log",
-      "command": "/tmp/kindbnkctl cluster up --poc /tmp/smoke --yolo --confirm-cluster smoke",
-      "summary": "completed in 47s"
+      "command": "/home/mwiget/git/kindbnkctl/bin/kindbnkctl cluster up --poc /home/mwiget/git/kindbnkctl/demo --yolo --confirm-cluster demo",
+      "summary": "completed in 48s"
     },
     {
       "index": 3,
       "phase": "deploy-prereqs",
       "status": "ok",
-      "started_at": "2026-05-22T09:01:43.203438956Z",
-      "duration": "25s",
+      "started_at": "2026-06-03T06:48:42.679825607Z",
+      "duration": "24s",
       "log_path": "logs/03-deploy-prereqs.log",
-      "command": "/tmp/kindbnkctl deploy prereqs --poc /tmp/smoke --yolo --confirm-deploy smoke",
-      "summary": "completed in 25s"
+      "command": "/home/mwiget/git/kindbnkctl/bin/kindbnkctl deploy prereqs --poc /home/mwiget/git/kindbnkctl/demo --yolo --confirm-deploy demo",
+      "summary": "completed in 24s"
     },
     {
       "index": 4,
       "phase": "deploy-flo",
       "status": "ok",
-      "started_at": "2026-05-22T09:02:08.260122002Z",
-      "duration": "24s",
+      "started_at": "2026-06-03T06:49:07.66433958Z",
+      "duration": "22s",
       "log_path": "logs/04-deploy-flo.log",
-      "command": "/tmp/kindbnkctl deploy flo --poc /tmp/smoke --yolo --confirm-deploy smoke",
-      "summary": "completed in 24s"
+      "command": "/home/mwiget/git/kindbnkctl/bin/kindbnkctl deploy flo --poc /home/mwiget/git/kindbnkctl/demo --yolo --confirm-deploy demo",
+      "summary": "completed in 22s"
     },
     {
       "index": 5,
       "phase": "deploy-cne",
       "status": "ok",
-      "started_at": "2026-05-22T09:02:32.371270403Z",
-      "duration": "4m23s",
+      "started_at": "2026-06-03T06:49:30.622397793Z",
+      "duration": "4m20s",
       "log_path": "logs/05-deploy-cne.log",
-      "command": "/tmp/kindbnkctl deploy cne --poc /tmp/smoke --yolo --confirm-deploy smoke",
-      "summary": "completed in 4m23s"
+      "command": "/home/mwiget/git/kindbnkctl/bin/kindbnkctl deploy cne --poc /home/mwiget/git/kindbnkctl/demo --yolo --confirm-deploy demo",
+      "summary": "completed in 4m20s"
     }
   ],
   "scenarios": [
@@ -243,14 +251,14 @@
       "name": "bgp-peer-frr",
       "rating": "green",
       "status": "ok",
-      "duration": "3m19s",
+      "duration": "3m21s",
       "summary": "BGP Established over Multus NAD; routes exchanged TMM ↔ FRR"
     },
     {
       "name": "ai-semantic-cache",
       "rating": "green",
       "status": "ok",
-      "duration": "22s",
+      "duration": "50s",
       "summary": "Annotations reconciled + TMM data-plane semantic-cache iRule fires on every request"
     },
     {
@@ -264,7 +272,7 @@
       "name": "cluster-wide-watch",
       "rating": "green",
       "status": "ok",
-      "duration": "4s",
+      "duration": "5s",
       "summary": "Single cluster-wide controller reconciled a Gateway+HTTPRoute in a brand-new namespace"
     },
     {
@@ -285,35 +293,42 @@
       "name": "external-resource-pool",
       "rating": "green",
       "status": "ok",
-      "duration": "18s",
+      "duration": "23s",
       "summary": "Pool reconciled, BGP route present, 5/5 curls to ext-backend via Pool succeeded"
+    },
+    {
+      "name": "grpc-loadbalance",
+      "rating": "green",
+      "status": "ok",
+      "duration": "28s",
+      "summary": "gRPC load-balanced end-to-end via L4Route (TCP); GRPCRoute control plane reconciled but its L7 data plane RST_STREAMs (informational) — see Description"
     },
     {
       "name": "http-routing-e2e",
       "rating": "green",
       "status": "ok",
-      "duration": "28s",
+      "duration": "21s",
       "summary": "control-plane reconciled + 5/5 end-to-end curls succeeded via NAD"
     },
     {
       "name": "proxy-protocol-l4",
       "rating": "green",
       "status": "ok",
-      "duration": "18s",
+      "duration": "27s",
       "summary": "L4Route + iRule + BnkNetPolicy reconciled; 5/5 PROXY-prefixed connections parsed by nginx"
     },
     {
       "name": "tcp-l4-loadbalance",
       "rating": "green",
       "status": "ok",
-      "duration": "35s",
+      "duration": "30s",
       "summary": "L4Route TCP LB reconciled; weight 70/30 split observed across A and B"
     },
     {
       "name": "udp-l4-loadbalance",
       "rating": "green",
       "status": "ok",
-      "duration": "57s",
+      "duration": "42s",
       "summary": "L4Route UDP LB reconciled; 5/5 datagrams echoed via Gateway"
     }
   ]

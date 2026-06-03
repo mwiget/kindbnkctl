@@ -66,7 +66,12 @@ The full green scenario suite has been run end-to-end on the k3d backend
 reference report (`examples/reports/scenarios/`):
 
 - **11/11 green scenarios pass** on k3d (run 2026-06-02, 10m19s),
-  matching kind's 11/11.
+  matching kind's 11/11 *at that time*. (`grpc-loadbalance` was
+  subsequently re-rated green, so the current suite is 12 green and the
+  kind reference report is now 12/12 — the k3d report under
+  `examples/reports-k3d/` predates that and still shows 11. The new
+  scenario rides a backend-agnostic L4Route path, so 12/12 parity is
+  expected; re-run `scenario run --all` on k3d to reconfirm.)
 - **Every assertion is identical** in description and pass/fail across
   both backends — no assertion passes on kind but fails, skips, or
   relaxes on k3d. This includes the data-plane-heavy paths (BGP peering,

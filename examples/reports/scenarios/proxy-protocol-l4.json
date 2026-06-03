@@ -28,7 +28,7 @@
     {
       "description": "FRR BGP table has 203.0.113.102/32 advertised by TMM",
       "ok": true,
-      "got": "BGP table version is 19, local router ID is 192.168.99.20, vrf id 0 Default local pref 100, local AS 65001 Status codes: s suppressed, d damped, h history, * valid, \u003e best, = multipath, i internal, r …"
+      "got": "BGP table version is 21, local router ID is 192.168.99.20, vrf id 0 Default local pref 100, local AS 65001 Status codes: s suppressed, d damped, h history, * valid, \u003e best, = multipath, i internal, r …"
     },
     {
       "description": "5/5 L4 curls carry PROXY header parsed by nginx",
@@ -36,8 +36,8 @@
       "got": "5/5 curls saw marker + non-empty proxy_addr — last body: kindbnkctl-scenario-proxy-protocol-OK proxy_addr=192.168.99.20"
     }
   ],
-  "manifest_path": "/tmp/smoke/artifacts/scenarios/proxy-protocol-l4/01-namespace.yaml,/tmp/smoke/artifacts/scenarios/proxy-protocol-l4/02-bnkgateway.yaml,/tmp/smoke/artifacts/scenarios/proxy-protocol-l4/03-backend.yaml,/tmp/smoke/artifacts/scenarios/proxy-protocol-l4/04-gateway.yaml,/tmp/smoke/artifacts/scenarios/proxy-protocol-l4/05-irule.yaml,/tmp/smoke/artifacts/scenarios/proxy-protocol-l4/06-l4route.yaml,/tmp/smoke/artifacts/scenarios/proxy-protocol-l4/07-bnknetpolicy.yaml",
+  "manifest_path": "/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/proxy-protocol-l4/01-namespace.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/proxy-protocol-l4/02-bnkgateway.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/proxy-protocol-l4/03-backend.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/proxy-protocol-l4/04-gateway.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/proxy-protocol-l4/05-irule.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/proxy-protocol-l4/06-l4route.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/proxy-protocol-l4/07-bnknetpolicy.yaml",
   "scenario": "proxy-protocol-l4",
-  "started_at": "2026-05-22T09:15:03.630890878Z",
-  "duration": "18s"
+  "started_at": "2026-06-03T07:02:55.816894037Z",
+  "duration": "27s"
 }

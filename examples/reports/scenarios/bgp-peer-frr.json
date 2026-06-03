@@ -20,7 +20,7 @@
     {
       "description": "ZeBOS in TMM sees neighbor on bnk-bgp bridge",
       "ok": true,
-      "got": "BGP router identifier 10.244.239.229, local AS number 65000 BGP table version is 3 2 BGP AS-PATH entries 0 BGP community entries Neighbor V AS MsgRcv MsgSen TblVer InQ OutQ Up/Down State/PfxRcd 192.16…"
+      "got": "BGP router identifier 10.244.157.165, local AS number 65000 BGP table version is 3 2 BGP AS-PATH entries 0 BGP community entries Neighbor V AS MsgRcv MsgSen TblVer InQ OutQ Up/Down State/PfxRcd 192.16…"
     },
     {
       "description": "BGP session Established between FRR and TMM/ZeBOS",
@@ -33,8 +33,8 @@
       "got": "BGP table version is 3, local router ID is 192.168.99.20, vrf id 0 Default local pref 100, local AS 65001 Status codes: s suppressed, d damped, h history, * valid, \u003e best, = multipath, i internal, r RIB-failure, S Stale, R Removed Nexthop codes: @NNN…"
     }
   ],
-  "manifest_path": "/tmp/smoke/artifacts/scenarios/bgp-peer-frr/01-namespace.yaml,/tmp/smoke/artifacts/scenarios/bgp-peer-frr/02-nad.yaml,/tmp/smoke/artifacts/scenarios/bgp-peer-frr/03-frr-config.yaml,/tmp/smoke/artifacts/scenarios/bgp-peer-frr/04-frr.yaml,/tmp/smoke/artifacts/scenarios/bgp-peer-frr/05-zebos-template.yaml.tmpl",
+  "manifest_path": "/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/bgp-peer-frr/01-namespace.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/bgp-peer-frr/02-nad.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/bgp-peer-frr/03-frr-config.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/bgp-peer-frr/04-frr.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/bgp-peer-frr/05-zebos-template.yaml.tmpl",
   "scenario": "bgp-peer-frr",
-  "started_at": "2026-05-22T09:06:55.825011951Z",
-  "duration": "3m19s"
+  "started_at": "2026-06-03T06:53:51.056146635Z",
+  "duration": "3m21s"
 }

@@ -9,7 +9,7 @@
     {
       "description": "Authenticated GET /status returns HTTP 200 with license JSON",
       "ok": true,
-      "got": "{\"Status\":{\"ClusterDetails\":{\"Name\":\"CNE Cluster\"},\"LicenseDetails\":{\"DigitalAssetID\":\"a4a2ce49-2f95-4881-8191-7737e7490889\",\"EntitlementType\":\"paid\",\"LicenseExpiryDate\":\"2026-11-18T09:05:57Z\",\"LicenseExpiryInDays\":\"179\"},\"LicenseStatus\":{\"State\":\"Ve…"
+      "got": "{\"Status\":{\"ClusterDetails\":{\"Name\":\"CNE Cluster\"},\"LicenseDetails\":{\"DigitalAssetID\":\"503609fc-1a00-49c1-afe5-7f29cbb67823\",\"EntitlementType\":\"paid\",\"LicenseExpiryDate\":\"2026-11-30T06:52:49Z\",\"LicenseExpiryInDays\":\"179\"},\"LicenseStatus\":{\"State\":\"Ve…"
     },
     {
       "description": "Unauthenticated GET /status is rejected (no token in header)",
@@ -22,8 +22,8 @@
       "got": "invalid token __HTTP_CODE__=401"
     }
   ],
-  "manifest_path": "/tmp/smoke/artifacts/scenarios/cwc-admin-access/01-namespace.yaml,/tmp/smoke/artifacts/scenarios/cwc-admin-access/02-probe.yaml",
+  "manifest_path": "/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/cwc-admin-access/01-namespace.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/cwc-admin-access/02-probe.yaml",
   "scenario": "cwc-admin-access",
-  "started_at": "2026-05-22T09:14:07.507042434Z",
+  "started_at": "2026-06-03T07:01:33.101159198Z",
   "duration": "9s"
 }

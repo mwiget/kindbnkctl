@@ -1,0 +1,67 @@
+{
+  "status": "ok",
+  "summary": "gRPC load-balanced end-to-end via L4Route (TCP); GRPCRoute control plane reconciled but its L7 data plane RST_STREAMs (informational) — see Description",
+  "assertions": [
+    {
+      "description": "grpcbin Deployment Available",
+      "ok": true
+    },
+    {
+      "description": "Gateway Programmed=True",
+      "ok": true
+    },
+    {
+      "description": "GRPCRoute Accepted=True",
+      "ok": true,
+      "got": "True"
+    },
+    {
+      "description": "FRR BGP table has 203.0.113.108/32 advertised by TMM",
+      "ok": true,
+      "got": "BGP table version is 19, local router ID is 192.168.99.20, vrf id 0 Default local pref 100, local AS 65001 Status codes: s suppressed, d damped, h history, * valid, \u003e best, = multipath, i internal, r …"
+    },
+    {
+      "description": "grpcurl installed in FRR pod (SHA-256 verified)",
+      "ok": true,
+      "got": "grpcurl.tgz: OK installed"
+    },
+    {
+      "description": "grpcurl list via Gateway (informational, RST_STREAM expected)",
+      "ok": true,
+      "got": " err=kubectl -n scn-bgp exec scn-frr-776cc4644d-9qd4v -c frr -- /tmp/grpcurl -plaintext -max-time 10 203.0.113.108:50051 list: exit status 1 (stderr: Failed to list services: rpc error: code = Internal des…"
+    },
+    {
+      "description": "grpcurl list direct to backend Service returns grpcbin.GRPCBin (proves backend healthy)",
+      "ok": true,
+      "got": "addsvc.Add grpc.gateway.examples.examplepb.ABitOfEverythingService grpc.reflection.v1alpha.ServerReflection grpcbin.GRPCBin hello.HelloService"
+    },
+    {
+      "description": "L4 Gateway Programmed=True",
+      "ok": true
+    },
+    {
+      "description": "L4Route ResolvedRefs=True (plain-TCP backend bound)",
+      "ok": true,
+      "got": "True"
+    },
+    {
+      "description": "FRR BGP table has 203.0.113.109/32 (L4 Gateway) advertised by TMM",
+      "ok": true,
+      "got": "BGP table version is 19, local router ID is 192.168.99.20, vrf id 0 Default local pref 100, local AS 65001 Status codes: s suppressed, d damped, h history, * valid, \u003e best, = multipath, i internal, r …"
+    },
+    {
+      "description": "grpcurl list via L4Route Gateway returns grpcbin.GRPCBin (gRPC works over L4)",
+      "ok": true,
+      "got": "addsvc.Add grpc.gateway.examples.examplepb.ABitOfEverythingService grpc.reflection.v1alpha.ServerReflection grpcbin.GRPCBin hello.HelloService"
+    },
+    {
+      "description": "grpcurl unary grpcbin.GRPCBin/Index via L4Route returns 'gRPC testing server'",
+      "ok": true,
+      "got": "{ \"description\": \"gRPC testing server\", \"endpoints\": [ { \"path\": \"Index\" }, { \"path\": \"Empty\" }, { \"path\": \"DummyUnary\" }, { \"path\": \"SpecificError\" }, { \"path\": \"RandomError\" }, { \"path\": \"HeadersUna…"
+    }
+  ],
+  "manifest_path": "/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/grpc-loadbalance/01-namespace.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/grpc-loadbalance/02-bnkgateway.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/grpc-loadbalance/03-backend.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/grpc-loadbalance/04-gateway.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/grpc-loadbalance/05-grpcroute.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/grpc-loadbalance/06-l4-backend-svc.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/grpc-loadbalance/07-l4-gateway.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/grpc-loadbalance/08-l4route.yaml",
+  "scenario": "grpc-loadbalance",
+  "started_at": "2026-06-03T07:02:05.769506619Z",
+  "duration": "28s"
+}

@@ -1,10 +1,11 @@
-PoC:        smoke  (BNK 2.3.0)
+PoC:        demo  (BNK 2.3.0)
 
 [1/6] Container-runtime preflight ...
       using docker
+      backend kind
 [2/6] Rendering kind.yaml + ensuring cluster exists ...
-      rendered → /tmp/smoke/artifacts/kind.yaml
-      | Creating cluster "smoke" ...
+      rendered → /home/mwiget/git/kindbnkctl/demo/artifacts/kind.yaml
+      | Creating cluster "demo" ...
       |  • Ensuring node image (kindest/node:v1.30.8) 🖼  ...
       |  ✓ Ensuring node image (kindest/node:v1.30.8) 🖼
       |  • Preparing nodes 📦 📦   ...
@@ -17,14 +18,14 @@ PoC:        smoke  (BNK 2.3.0)
       |  ✓ Installing StorageClass 💾
       |  • Joining worker nodes 🚜  ...
       |  ✓ Joining worker nodes 🚜
-      | Set kubectl context to "kind-smoke"
+      | Set kubectl context to "kind-demo"
       | You can now use your cluster with:
       | 
-      | kubectl cluster-info --context kind-smoke
+      | kubectl cluster-info --context kind-demo
       | 
-      | Have a nice day! 👋
+      | Thanks for using kind! 😊
 [3/6] Fetching kubeconfig ...
-      /tmp/smoke/artifacts/kubeconfig
+      /home/mwiget/git/kindbnkctl/demo/artifacts/kubeconfig
 [4/6] Applying Calico CNI + NetworkAttachmentDefinition CRD ...
       | poddisruptionbudget.policy/calico-kube-controllers created
       | serviceaccount/calico-kube-controllers created
@@ -60,9 +61,10 @@ PoC:        smoke  (BNK 2.3.0)
       | customresourcedefinition.apiextensions.k8s.io/network-attachment-definitions.k8s.cni.cncf.io created
       | deployment.apps/calico-kube-controllers condition met
 [5/6] Labelling worker node for TMM ...
-      | node/smoke-worker labeled
+      | node/demo-worker labeled
 [6/6] bnk-forge registration ...
-      skipped (disabled or --skip-bnk-forge)
+  bnk-forge not responding at https://localhost: Get "https://localhost/api/system/health": dial tcp 127.0.0.1:443: connect: connection refused
+      bnk-forge configured but not running — skipping. (bnk-forge is not running at https://localhost — start it manually (e.g. `cd /home/mwiget/git/bnk-forge && make deploy`) and retry)
       poc.yaml updated
 
 DONE.  Next: `kindbnkctl deploy prereqs && deploy flo && deploy cne` (or run e2e).

@@ -22,7 +22,7 @@
     {
       "description": "FRR BGP table has 203.0.113.106/32 advertised by TMM",
       "ok": true,
-      "got": "BGP table version is 20, local router ID is 192.168.99.20, vrf id 0 Default local pref 100, local AS 65001 Status codes: s suppressed, d damped, h history, * valid, \u003e best, = multipath, i internal, r …"
+      "got": "BGP table version is 22, local router ID is 192.168.99.20, vrf id 0 Default local pref 100, local AS 65001 Status codes: s suppressed, d damped, h history, * valid, \u003e best, = multipath, i internal, r …"
     },
     {
       "description": "20/20 L4 TCP curls succeeded",
@@ -35,8 +35,8 @@
       "got": "A=14 B=6 (of 20)"
     }
   ],
-  "manifest_path": "/tmp/smoke/artifacts/scenarios/tcp-l4-loadbalance/01-namespace.yaml,/tmp/smoke/artifacts/scenarios/tcp-l4-loadbalance/02-bnkgateway.yaml,/tmp/smoke/artifacts/scenarios/tcp-l4-loadbalance/03-backend.yaml,/tmp/smoke/artifacts/scenarios/tcp-l4-loadbalance/04-gateway.yaml,/tmp/smoke/artifacts/scenarios/tcp-l4-loadbalance/05-l4route.yaml",
+  "manifest_path": "/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/tcp-l4-loadbalance/01-namespace.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/tcp-l4-loadbalance/02-bnkgateway.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/tcp-l4-loadbalance/03-backend.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/tcp-l4-loadbalance/04-gateway.yaml,/home/mwiget/git/kindbnkctl/demo/artifacts/scenarios/tcp-l4-loadbalance/05-l4route.yaml",
   "scenario": "tcp-l4-loadbalance",
-  "started_at": "2026-05-22T09:15:21.836748195Z",
-  "duration": "35s"
+  "started_at": "2026-06-03T07:03:23.179174945Z",
+  "duration": "30s"
 }
