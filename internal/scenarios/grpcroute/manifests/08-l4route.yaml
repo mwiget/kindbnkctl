@@ -1,0 +1,21 @@
+# L4Route binding the TCP listener to the plain-TCP grpcbin Service.
+#
+# pvaAccelerationMode is left at its default (full/assisted) — gRPC over
+# L4 works with hardware acceleration ON, exactly like the green
+# tcp-l4-loadbalance scenario. PVA was empirically verified NOT to affect
+# gRPC framing (it works at both full/assisted and disabled), so unlike
+# proxy-protocol-l4 there is no need to disable it here.
+apiVersion: gateway.k8s.f5net.com/v1
+kind: L4Route
+metadata:
+  name: scn-grpc-l4-route
+  namespace: scn-grpc
+spec:
+  protocol: TCP
+  parentRefs:
+  - name: scn-grpc-l4-gateway
+    sectionName: tcp-grpc
+  rules:
+  - backendRefs:
+    - name: grpcbin-tcp
+      port: 9000

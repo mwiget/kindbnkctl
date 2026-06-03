@@ -1,4 +1,4 @@
-# gRPC Routing Investigation — grpc-loadbalance (🟡 amber)
+# gRPC Routing Investigation — grpc-loadbalance (🟢 green via L4Route; GRPCRoute data plane still ❌)
 
 ## Problem
 
@@ -134,9 +134,17 @@ today — by routing it as L4 instead of L7:
 The trade-off: an L4Route is opaque TCP load balancing — no
 gRPC/HTTP-2-aware features (per-method routing, weighting on gRPC
 semantics, header matches). It is connection-level LB that happens to
-carry HTTP/2 intact. That is why the scenario stays **amber for
-GRPCRoute proper**: the Gateway API `GRPCRoute` CRD does not yet work on
-the data plane in this shape, even though a raw-L4 substitute does.
+carry HTTP/2 intact.
+
+**The `grpc-loadbalance` scenario is rated 🟢 green on the strength of
+this L4 path** — its green-gating assertions are `grpcurl list` and a
+real unary `grpcbin.GRPCBin/Index` call succeeding through the L4Route
+Gateway. It still deploys the GRPCRoute alongside and asserts its
+control plane (Gateway Programmed, GRPCRoute Accepted), and keeps the
+GRPCRoute data-plane `grpcurl` as an **informational** assertion so the
+report shows the RST_STREAM verbatim. So: gRPC load balancing is green
+in this shape, while **GRPCRoute proper remains broken** on the data
+plane — the items below are what that CRD still needs.
 
 ## What's needed for green (GRPCRoute)
 

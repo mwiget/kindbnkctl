@@ -25,10 +25,16 @@ var manifestFS embed.FS
 
 const (
 	scnName  = "grpc-loadbalance"
-	scnTitle = "gRPC routing via GRPCRoute CRD — moul/grpcbin backend with reflection"
+	scnTitle = "gRPC load balancing — L4Route (TCP) data plane; GRPCRoute control plane (moul/grpcbin)"
 
 	gwAddr = "203.0.113.108"
 	gwPort = "50051"
+
+	// L4Route (TCP) data-plane path — the green workaround. gRPC rides
+	// raw L4 here, bypassing the GRPCRoute L7 profile chain that
+	// RST_STREAMs HTTP/2. See docs/grpc-route-investigation.md.
+	l4Addr = "203.0.113.109"
+	l4Port = "50052"
 
 	// grpcurl release: pinned + SHA-256 verified before extraction.
 	// The binary runs inside the FRR pod, which is privileged on the
@@ -43,45 +49,49 @@ type scenario struct{}
 
 func (s *scenario) Name() string             { return scnName }
 func (s *scenario) Title() string            { return scnTitle }
-func (s *scenario) Rating() scenarios.Rating { return scenarios.Amber }
+func (s *scenario) Rating() scenarios.Rating { return scenarios.Green }
 func (s *scenario) Dependencies() []string   { return []string{"bgp-peer-frr"} }
 func (s *scenario) Description() string {
 	return strings.TrimSpace(`
-Exercises BNK's GRPCRoute CRD against a moul/grpcbin backend.
+Load-balances gRPC to a moul/grpcbin backend in the 2-node demo-TMM
+shape, and exercises BNK's GRPCRoute CRD alongside it.
 
-The Gateway has an HTTP listener on port 50051 (per F5 BNK docs,
-gRPC is carried over HTTP/HTTPS listeners). The GRPCRoute forwards
-every method to the backend without filters or hostnames — the
-BNK docs note that hostnames, matches, filters, and multi-rule
-GRPCRoutes are not yet supported.
+Two data paths are deployed for the same grpcbin pods:
 
-Status as of BNK 2.3.0 in kindbnkctl's demo-TMM shape (🟡):
-  - GRPCRoute control plane reconciles cleanly. Gateway reaches
-    Programmed=True, GRPCRoute reaches Accepted=True, TMM emits
-    audit entries for cl-profile-http2 + srv-profile-http2 +
-    profile-http + profile-httprouter + profile-json profile
-    chain, and the pool member is marked Up.
-  - The pinned grpcurl binary (v1.9.3, SHA-256 verified) installs
-    into the FRR pod over the Multus NAD with a BGP-learned route
-    to the Gateway IP.
-  - Direct grpcurl-to-backend Service via cluster DNS works (lists
-    addsvc.Add, grpcbin.GRPCBin, ServerReflection, hello.HelloService).
-  - grpcurl through the Gateway returns
+  1. GRPCRoute (Gateway API L7), HTTP listener on port 50051 — the
+     CRD this how-to is about. Single rule, no hostnames/matches/
+     filters (the BNK docs note those are unsupported).
+  2. L4Route (TCP) on port 50052 — a raw L4 path to a plain-TCP
+     copy of the Service.
+
+Why two paths (🟢 green via the L4Route):
+  - GRPCRoute control plane reconciles cleanly — Gateway
+    Programmed=True, GRPCRoute Accepted=True, pool member Up — but
+    its DATA plane fails: grpcurl through the L7 Gateway returns
     "rpc error: code = Internal desc = stream terminated by
-    RST_STREAM with error code: INTERNAL_ERROR". Investigation
-    confirmed that TMM's FLO controller unconditionally applies
-    profile-http + profile-json + profile-httprouter to all
-    listener types (HTTP and HTTPS), which corrupts HTTP/2 binary
-    frames regardless of TLS termination. Setting appProtocol
-    kubernetes.io/h2c on the backend Service has no effect on the
-    client-side profile chain. This is a BNK 2.3.0 FLO limitation.
-    Likely needs a "raw HTTP/2 passthrough" mode for GRPCRoute
-    listeners, or a BNK profile-override path not yet exposed via
-    the Gateway API CRDs.
+    RST_STREAM with error code: INTERNAL_ERROR". TMM's FLO applies
+    the profile-http + profile-json + profile-httprouter chain to
+    every GRPCRoute virtual server, which corrupts HTTP/2 binary
+    frames. This is a BNK 2.3.0 FLO limitation (no raw HTTP/2
+    passthrough mode for GRPCRoute). The scenario keeps this call
+    as an INFORMATIONAL assertion so the report shows the
+    RST_STREAM verbatim.
+  - The L4Route path carries gRPC end-to-end: grpcurl reflection
+    list AND a real unary grpcbin.GRPCBin/Index call both succeed
+    through the L4 Gateway IP. Proven by experiment to be a true
+    fix (not PVA-related — it works at pvaAccelerationMode
+    full/assisted, the default, same as tcp-l4-loadbalance). The
+    trade-off: L4Route is opaque TCP LB — no gRPC/HTTP-2-aware
+    per-method routing — but it carries HTTP/2 intact, so gRPC
+    load balancing IS testable green in this shape today.
 
-The scenario therefore asserts the control-plane state only and
-attempts the grpcurl call as informational diagnostics so the
-report shows the RST_STREAM verbatim.
+Note: the L4Route binds a plain-TCP Service. An L4Route refuses a
+Service tagged appProtocol: kubernetes.io/h2c (ResolvedRefs=False /
+UnsupportedProtocol), so the L4 path uses its own untagged Service.
+
+The pinned grpcurl binary (v1.9.3, SHA-256 verified) installs into
+the FRR pod over the Multus NAD with a BGP-learned route to each
+Gateway IP. Full analysis: docs/grpc-route-investigation.md.
 
 Cleanup deletes the scn-grpc namespace.
 `)
@@ -122,6 +132,9 @@ func (s *scenario) Apply(ctx *scenarios.Context) error {
 		"03-backend.yaml",
 		"04-gateway.yaml",
 		"05-grpcroute.yaml",
+		"06-l4-backend-svc.yaml",
+		"07-l4-gateway.yaml",
+		"08-l4route.yaml",
 	} {
 		body, err := manifestFS.ReadFile("manifests/" + f)
 		if err != nil {
@@ -177,24 +190,7 @@ func (s *scenario) Verify(ctx *scenarios.Context) scenarios.Result {
 	}
 	frrPod = strings.TrimSpace(frrPod)
 
-	deadline := time.Now().Add(2 * time.Minute)
-	var lastTable string
-	hasGW := false
-	for time.Now().Before(deadline) {
-		bgpTable, _ := r.KubectlCapture(ctx.Ctx, "-n", "scn-bgp", "exec",
-			frrPod, "-c", "frr", "--",
-			"vtysh", "-c", "show bgp ipv4 unicast")
-		lastTable = bgpTable
-		if strings.Contains(bgpTable, gwAddr) {
-			hasGW = true
-			break
-		}
-		select {
-		case <-ctx.Ctx.Done():
-			break
-		case <-time.After(5 * time.Second):
-		}
-	}
+	hasGW, lastTable := waitBGP(ctx, frrPod, gwAddr)
 	res.Assertions = append(res.Assertions, scenarios.Assertion{
 		Description: fmt.Sprintf("FRR BGP table has %s/32 advertised by TMM", gwAddr),
 		OK:          hasGW,
@@ -262,6 +258,65 @@ echo installed`
 		Got:         directGot,
 	})
 
+	// ---- L4Route (TCP) data-plane path: the green workaround ----
+	// gRPC rides raw L4 here, bypassing the GRPCRoute L7 profile chain
+	// that RST_STREAMs HTTP/2. See docs/grpc-route-investigation.md.
+	{
+		err := r.Kubectl(ctx.Ctx, "-n", "scn-grpc", "wait",
+			"--for=condition=Programmed", "--timeout=5m",
+			"gateway/scn-grpc-l4-gateway")
+		res.Assertions = append(res.Assertions, scenarios.Assertion{
+			Description: "L4 Gateway Programmed=True",
+			OK:          err == nil, Got: errString(err),
+		})
+	}
+	// L4Route ResolvedRefs=True proves the plain-TCP Service bound; an
+	// appProtocol:h2c Service would fail here with UnsupportedProtocol.
+	l4state, _ := r.KubectlCapture(ctx.Ctx, "-n", "scn-grpc", "get",
+		"l4route/scn-grpc-l4-route",
+		"-o", "jsonpath={.status.parents[0].conditions[?(@.type==\"ResolvedRefs\")].status}")
+	res.Assertions = append(res.Assertions, scenarios.Assertion{
+		Description: "L4Route ResolvedRefs=True (plain-TCP backend bound)",
+		OK:          strings.TrimSpace(l4state) == "True",
+		Got:         strings.TrimSpace(l4state),
+	})
+
+	hasL4, l4Table := waitBGP(ctx, frrPod, l4Addr)
+	res.Assertions = append(res.Assertions, scenarios.Assertion{
+		Description: fmt.Sprintf("FRR BGP table has %s/32 (L4 Gateway) advertised by TMM", l4Addr),
+		OK:          hasL4,
+		Got:         oneLine(l4Table, 200),
+	})
+
+	// grpcurl reflection-list through the L4 Gateway — the green
+	// assertion. Retry to absorb BGP propagation + data-plane
+	// programming lag for the freshly-advertised L4 IP.
+	l4List, l4Err := grpcurlRetry(ctx, frrPod, "-plaintext", "-max-time", "10",
+		l4Addr+":"+l4Port, "list")
+	l4Got := oneLine(l4List, 200)
+	if l4Err != nil {
+		l4Got = l4Got + " err=" + oneLine(l4Err.Error(), 200)
+	}
+	res.Assertions = append(res.Assertions, scenarios.Assertion{
+		Description: "grpcurl list via L4Route Gateway returns grpcbin.GRPCBin (gRPC works over L4)",
+		OK:          l4Err == nil && strings.Contains(l4List, "grpcbin.GRPCBin"),
+		Got:         l4Got,
+	})
+
+	// A real unary call over the L4 path — proves it's not just a TCP
+	// connect but full HTTP/2 request/response carried intact.
+	l4Unary, l4UErr := grpcurlRetry(ctx, frrPod, "-plaintext", "-max-time", "10",
+		"-d", "{}", l4Addr+":"+l4Port, "grpcbin.GRPCBin/Index")
+	l4UGot := oneLine(l4Unary, 200)
+	if l4UErr != nil {
+		l4UGot = l4UGot + " err=" + oneLine(l4UErr.Error(), 200)
+	}
+	res.Assertions = append(res.Assertions, scenarios.Assertion{
+		Description: "grpcurl unary grpcbin.GRPCBin/Index via L4Route returns 'gRPC testing server'",
+		OK:          l4UErr == nil && strings.Contains(l4Unary, "gRPC testing server"),
+		Got:         l4UGot,
+	})
+
 	return finalize(res)
 }
 
@@ -271,10 +326,55 @@ func (s *scenario) Cleanup(ctx *scenarios.Context) error {
 	return nil
 }
 
+// waitBGP polls FRR's BGP table (up to 2 min) for a /32 advertised by
+// TMM, returning whether it appeared and the last table seen.
+func waitBGP(ctx *scenarios.Context, frrPod, addr string) (bool, string) {
+	r := ctx.Runner
+	deadline := time.Now().Add(2 * time.Minute)
+	var last string
+	for time.Now().Before(deadline) {
+		t, _ := r.KubectlCapture(ctx.Ctx, "-n", "scn-bgp", "exec",
+			frrPod, "-c", "frr", "--",
+			"vtysh", "-c", "show bgp ipv4 unicast")
+		last = t
+		if strings.Contains(t, addr) {
+			return true, last
+		}
+		select {
+		case <-ctx.Ctx.Done():
+			return false, last
+		case <-time.After(5 * time.Second):
+		}
+	}
+	return false, last
+}
+
+// grpcurlRetry runs grpcurl in the FRR pod, retrying (up to 90s) until
+// it exits 0 — absorbing BGP propagation + data-plane programming lag
+// for a freshly-advertised Gateway IP. Returns the last output + error.
+func grpcurlRetry(ctx *scenarios.Context, frrPod string, args ...string) (string, error) {
+	r := ctx.Runner
+	deadline := time.Now().Add(90 * time.Second)
+	base := []string{"-n", "scn-bgp", "exec", frrPod, "-c", "frr", "--", "/tmp/grpcurl"}
+	var out string
+	var err error
+	for {
+		out, err = r.KubectlCapture(ctx.Ctx, append(append([]string{}, base...), args...)...)
+		if err == nil || time.Now().After(deadline) {
+			return out, err
+		}
+		select {
+		case <-ctx.Ctx.Done():
+			return out, err
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
 func finalize(res scenarios.Result) scenarios.Result {
 	if res.AllPassed() {
 		res.Status = "ok"
-		res.Summary = "GRPCRoute control plane reconciled; direct-to-backend gRPC works; Gateway-path RST_STREAM surfaced as informational (see Description)"
+		res.Summary = "gRPC load-balanced end-to-end via L4Route (TCP); GRPCRoute control plane reconciled but its L7 data plane RST_STREAMs (informational) — see Description"
 	} else {
 		res.Status = "failed"
 		var failed []string

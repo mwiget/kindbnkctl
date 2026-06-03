@@ -1,0 +1,20 @@
+# Plain-TCP Service (no appProtocol) for the L4Route data-plane path,
+# pointing at the same grpcbin pods as the GRPCRoute Service.
+#
+# An L4Route refuses to bind a Service tagged appProtocol:
+# kubernetes.io/h2c — it reports ResolvedRefs=False with reason
+# UnsupportedProtocol ("Referenced resource does not support this
+# protocol or appProtocol"). So the L4 path needs its own untagged
+# Service. See docs/grpc-route-investigation.md.
+apiVersion: v1
+kind: Service
+metadata:
+  name: grpcbin-tcp
+  namespace: scn-grpc
+spec:
+  selector: {app: grpcbin}
+  ports:
+  - name: grpc
+    port: 9000
+    targetPort: 9000
+    protocol: TCP
